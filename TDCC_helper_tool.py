@@ -62,10 +62,37 @@ def parse_args():
         choices=["Edge", "Chrome", "Firefox"],
         help="指定要使用的瀏覽器：[Edge, Chrome, Firefox]"
     )
+
+    parser.add_argument(
+        "--browser-log",
+        action="store_true",
+        help="顯示瀏覽器與 WebDriver 的背景日誌"
+    )
     args = parser.parse_args()
     # args.yes = True
     # args.browser = "Firefox"  # default browser
     return args
+
+def build_chromium_options(browser_name: str):
+    if browser_name == "Chrome":
+        from selenium.webdriver.chrome.options import Options
+        options = Options()
+    elif browser_name == "Edge":
+        from selenium.webdriver.edge.options import Options
+        options = Options()
+        options.use_chromium = True
+    else:
+        return None
+
+    if not args.browser_log:
+        options.add_argument("--log-level=3")
+        options.add_experimental_option("excludeSwitches", ["enable-logging"])
+    return options
+
+def build_service_kwargs():
+    if args.browser_log:
+        return {}
+    return {"log_output": os.devnull}
 
 def open_browser():
     global args
@@ -81,17 +108,17 @@ def open_browser():
                     if 'Chrome' in result.stdout:
                         print("使用 Chrome Driver")
                         from selenium.webdriver.chrome.service import Service
-                        service = Service(args.driver_path)
-                        browser = webdriver.Chrome(service=service)
+                        service = Service(args.driver_path, **build_service_kwargs())
+                        browser = webdriver.Chrome(service=service, options=build_chromium_options("Chrome"))
                     elif 'msedge' in result.stdout:
                         print("使用 Edge Driver")
                         from selenium.webdriver.edge.service import Service
-                        service = Service(args.driver_path)
-                        browser = webdriver.Edge(service=service)
+                        service = Service(args.driver_path, **build_service_kwargs())
+                        browser = webdriver.Edge(service=service, options=build_chromium_options("Edge"))
                     elif 'Firefox' in result.stdout:
                         print("使用 Firefox Driver")
                         from selenium.webdriver.firefox.service import Service
-                        service = Service(args.driver_path)
+                        service = Service(args.driver_path, **build_service_kwargs())
                         browser = webdriver.Firefox(service=service)
                     else:
                         print("無法辨識的瀏覽器 Driver")
@@ -112,13 +139,19 @@ def open_browser():
             # if user provided a browser flag
             if args.browser == "Edge":
                 print("使用 Edge WebDriver")
-                browser = webdriver.Edge()
+                from selenium.webdriver.edge.service import Service
+                service = Service(**build_service_kwargs())
+                browser = webdriver.Edge(service=service, options=build_chromium_options("Edge"))
             elif args.browser == "Chrome":
                 print("使用 Chrome WebDriver")
-                browser = webdriver.Chrome()
+                from selenium.webdriver.chrome.service import Service
+                service = Service(**build_service_kwargs())
+                browser = webdriver.Chrome(service=service, options=build_chromium_options("Chrome"))
             elif args.browser == "Firefox":
                 print("使用 Firefox WebDriver")
-                browser = webdriver.Firefox()
+                from selenium.webdriver.firefox.service import Service
+                service = Service(**build_service_kwargs())
+                browser = webdriver.Firefox(service=service)
             else: # no browser flag provided
                 raise FileNotFoundError("No custom driver path provided and no browser flag provided. Falling back to default.")
         
@@ -127,19 +160,25 @@ def open_browser():
         try:
             # Edge
             print("正在嘗試初始化 Edge WebDriver...")
-            browser = webdriver.Edge()
+            from selenium.webdriver.edge.service import Service as EdgeService
+            edge_service = EdgeService(**build_service_kwargs())
+            browser = webdriver.Edge(service=edge_service, options=build_chromium_options("Edge"))
         except Exception as e:
             print(f"初始化 Edge WebDriver 失敗：{e}")
             try:
                 # Chrome
                 print("正在嘗試初始化 Chrome WebDriver...")
-                browser = webdriver.Chrome()
+                from selenium.webdriver.chrome.service import Service as ChromeService
+                chrome_service = ChromeService(**build_service_kwargs())
+                browser = webdriver.Chrome(service=chrome_service, options=build_chromium_options("Chrome"))
             except Exception as e:
                 print(f"初始化 Chrome WebDriver 失敗：{e}")
                 try:
                     # Firefox
                     print("正在嘗試初始化 Firefox WebDriver...")
-                    browser = webdriver.Firefox()
+                    from selenium.webdriver.firefox.service import Service as FirefoxService
+                    firefox_service = FirefoxService(**build_service_kwargs())
+                    browser = webdriver.Firefox(service=firefox_service)
                 except Exception as e:
                     print(f"初始化 Firefox WebDriver 失敗：{e}")
                     sys.exit(1)
