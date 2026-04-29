@@ -24,6 +24,15 @@ no_confirm= False
 args = None
 os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--log-level=3"
 
+def short_exception_message(e: Exception) -> str:
+    msg = str(e).strip()
+    if not msg:
+        return e.__class__.__name__
+    first_line = msg.splitlines()[0].strip()
+    if first_line.startswith("Message:"):
+        first_line = first_line[len("Message:"):].strip()
+    return first_line
+
 def parse_args():
     parser = argparse.ArgumentParser(description="TDCC 電子投票與截圖輔助工具")
 
@@ -688,11 +697,16 @@ def screenshot(user_id,info):
     """
     save screenshot to the appropriate directory based on screenshot_mode.
     info[0]: stock_id, info[1]: stock_name, info[2]: stock_account_id
-    Returns: 0 for success, 1 for failure
+    Returns: 0 for success, 1 for failure, 2 for skip
     """
     global base_path, screenshot_mode
     try:
         driver.execute_script("document.body.style.zoom = '120%'")
+        body_text = driver.find_element(By.TAG_NAME, 'body').text
+        has_egift_text = ("eGift" in body_text) or ("電子紀念品" in body_text) or ("領取資格" in body_text)
+        if has_egift_text:
+            driver.execute_script("document.body.style.zoom = '100%'")
+            return 2
         # adjust the window size
         while(True):
             try:
@@ -726,7 +740,7 @@ def screenshot(user_id,info):
         driver.execute_script("document.body.style.zoom = '100%'")
         return 0
     except Exception as e:
-        print(f"截圖失敗：{e}")
+        print(f"截圖失敗：{short_exception_message(e)}")
         return 1
 
 def auto_screenshot(user_id, stock_id):
@@ -820,6 +834,14 @@ def auto_screenshot(user_id, stock_id):
             except Exception as e:
                 print(f"更新 voteinfolist 失敗：{e}")
                 return 1
+        elif ret == 2:
+            try:
+                voteinfolist[user_id].remove(stock_id)
+                write_voteinfolist(voteinfolist)
+                print(f"{voteinfo[0]} {voteinfo[1]} 偵測為 eGift 頁面，略過截圖")
+            except Exception as e:
+                print(f"更新 voteinfolist 失敗：{e}")
+                return 1
         else:
             print(f"{voteinfo[0]} {voteinfo[1]} 截圖失敗")
             return 1
@@ -831,7 +853,7 @@ def auto_screenshot(user_id, stock_id):
             print(f"返回上一頁失敗：{e}")
         return 0
     except Exception as e:
-        print(f"自動截圖失敗：{e}")
+        print(f"自動截圖失敗：{short_exception_message(e)}")
         return 1
 
 def write_voteinfolist(voteinfolist):
