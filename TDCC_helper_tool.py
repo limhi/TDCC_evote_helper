@@ -741,19 +741,24 @@ def screenshot(user_id,info):
     global base_path, screenshot_mode
     try:
         driver.execute_script("document.body.style.zoom = '120%'")
+        time.sleep(0.3*time_speed)
         body_text = driver.find_element(By.TAG_NAME, 'body').text
-        has_egift_text = ("eGift" in body_text) or ("電子紀念品" in body_text) or ("領取資格" in body_text)
+        time.sleep(0.3*time_speed)
+        has_egift_text = ("符合本次股東會 eGift電子紀念品 領取資格" in body_text)
         if has_egift_text:
+            time.sleep(0.3*time_speed)
             driver.execute_script("document.body.style.zoom = '100%'")
             return 2
         # adjust the window size
         while(True):
             try:
+                time.sleep(0.3*time_speed)
                 driver.find_element(By.CSS_SELECTOR,'div[class="u-width--100 u-t_align--right"]')
                 break
             except:
                 time.sleep(1)
                 continue
+        time.sleep(0.3*time_speed)
         votedate_pic = driver.find_element(By.CSS_SELECTOR,'div[class="u-width--100 u-t_align--right"]')
         driver.set_window_size(516, votedate_pic.location['y']+votedate_pic.size['height']+370)
         # scroll to the top of the page
@@ -849,6 +854,7 @@ def auto_screenshot(user_id, stock_id):
         time.sleep(1*time_speed)
         # 附加上 股東戶號
         try:
+            time.sleep(0.3*time_speed)
             # Try to get 戶號 from the table
             trs = driver.find_element(By.TAG_NAME,'tbody').find_elements(By.TAG_NAME,'tr')
             found = False
@@ -878,6 +884,7 @@ def auto_screenshot(user_id, stock_id):
                 voteinfolist[user_id].remove(stock_id)
                 write_voteinfolist(voteinfolist)
                 print(f"{voteinfo[0]} {voteinfo[1]} 偵測為 eGift 頁面，略過截圖")
+                return 0
             except Exception as e:
                 print(f"更新 voteinfolist 失敗：{e}")
                 return 1
@@ -886,10 +893,11 @@ def auto_screenshot(user_id, stock_id):
             return 1
         #返回
         try:
+            time.sleep(0.4*time_speed)
             driver.execute_script("arguments[0].click();", driver.find_element(By.CSS_SELECTOR,'button[onclick="back(); return false;"]'))
             time.sleep(0.5*time_speed)
         except Exception as e:
-            print(f"返回上一頁失敗：{e}")
+            print(f"返回上一頁失敗：{short_exception_message(e)}")
         return 0
     except Exception as e:
         print(f"自動截圖失敗：{short_exception_message(e)}")
