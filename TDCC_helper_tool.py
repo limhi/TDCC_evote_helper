@@ -25,14 +25,14 @@ args = None
 os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--log-level=3"
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="TDCC evote and screenshot automation tool")
+    parser = argparse.ArgumentParser(description="TDCC 電子投票與截圖輔助工具")
 
     # Optional flag argument (True if used, False otherwise)
     parser.add_argument(
         "-y",
         "--yes",
         action="store_true",
-        help="enabled no confirm mode? Will use exist config file(y/n)"
+        help="啟用免確認模式，直接套用現有設定檔（y/n）"
     )
 
     # Optional argument with value
@@ -41,7 +41,7 @@ def parse_args():
         "--driver_path",
         metavar="driver_path",
         type=str,
-        help="Path to a custom Driver executable file"
+        help="指定自訂瀏覽器 Driver 執行檔路徑"
     )
     # Optional browser flags, none or one of [Edge, Chrome, Firefox]
      
@@ -51,7 +51,7 @@ def parse_args():
         metavar="browser",
         type=str,
         choices=["Edge", "Chrome", "Firefox"],
-        help="Specify the browser to use [Edge, Chrome, Firefox]"
+        help="指定要使用的瀏覽器：[Edge, Chrome, Firefox]"
     )
     args = parser.parse_args()
     # args.yes = True
@@ -70,45 +70,45 @@ def open_browser():
                 result = subprocess.run([args.driver_path, '--help'], capture_output=True, text=True)
                 if result.returncode == 0:
                     if 'Chrome' in result.stdout:
-                        print("Using Chrome driver")
+                        print("使用 Chrome Driver")
                         from selenium.webdriver.chrome.service import Service
                         service = Service(args.driver_path)
                         browser = webdriver.Chrome(service=service)
                     elif 'msedge' in result.stdout:
-                        print("Using Edge driver")
+                        print("使用 Edge Driver")
                         from selenium.webdriver.edge.service import Service
                         service = Service(args.driver_path)
                         browser = webdriver.Edge(service=service)
                     elif 'Firefox' in result.stdout:
-                        print("Using Firefox driver")
+                        print("使用 Firefox Driver")
                         from selenium.webdriver.firefox.service import Service
                         service = Service(args.driver_path)
                         browser = webdriver.Firefox(service=service)
                     else:
-                        print("Unknown browser driver")
+                        print("無法辨識的瀏覽器 Driver")
                         raise FileNotFoundError("Unknown browser driver")
                 else:
-                    print("Failed to determine browser driver")
+                    print("無法判斷瀏覽器 Driver 類型")
                     raise FileNotFoundError("Failed to determine browser driver")
                 
-                print(f"Using custom driver path: {args.driver_path}")
+                print(f"使用自訂 Driver 路徑：{args.driver_path}")
 
             else:
                 #print to stdout
-                print(f"Custom driver path {args.driver_path} does not exist or is not executable. Falling back to open browser as normal.")
+                print(f"自訂 Driver 路徑 {args.driver_path} 不存在或不可執行，將改用預設方式啟動瀏覽器。")
                 #print to stderr
-                print("Custom driver path does not exist or is not executable. Falling back to default driver path.", file=sys.stderr)
+                print("自訂 Driver 路徑不存在或不可執行，改用預設 Driver 路徑。", file=sys.stderr)
                 raise FileNotFoundError(f"Custom driver path {args.driver_path} does not exist or is not executable.")
         else: # user did not provide a custom driver path
             # if user provided a browser flag
             if args.browser == "Edge":
-                print("Using Edge WebDriver")
+                print("使用 Edge WebDriver")
                 browser = webdriver.Edge()
             elif args.browser == "Chrome":
-                print("Using Chrome WebDriver")
+                print("使用 Chrome WebDriver")
                 browser = webdriver.Chrome()
             elif args.browser == "Firefox":
-                print("Using Firefox WebDriver")
+                print("使用 Firefox WebDriver")
                 browser = webdriver.Firefox()
             else: # no browser flag provided
                 raise FileNotFoundError("No custom driver path provided and no browser flag provided. Falling back to default.")
@@ -117,36 +117,36 @@ def open_browser():
         # let webdriver auto download and maintain the driver
         try:
             # Edge
-            print("Trying to initialize Edge WebDriver...")
+            print("正在嘗試初始化 Edge WebDriver...")
             browser = webdriver.Edge()
         except Exception as e:
-            print(f"Failed to initialize Edge WebDriver: {e}")
+            print(f"初始化 Edge WebDriver 失敗：{e}")
             try:
                 # Chrome
-                print("Trying to initialize Chrome WebDriver...")
+                print("正在嘗試初始化 Chrome WebDriver...")
                 browser = webdriver.Chrome()
             except Exception as e:
-                print(f"Failed to initialize Chrome WebDriver: {e}")
+                print(f"初始化 Chrome WebDriver 失敗：{e}")
                 try:
                     # Firefox
-                    print("Trying to initialize Firefox WebDriver...")
+                    print("正在嘗試初始化 Firefox WebDriver...")
                     browser = webdriver.Firefox()
                 except Exception as e:
-                    print(f"Failed to initialize Firefox WebDriver: {e}")
+                    print(f"初始化 Firefox WebDriver 失敗：{e}")
                     sys.exit(1)
     if browser is None:
         raise AssertionError("Browser initialization failed, please check your driver path or browser flag.")
-    print("WebDriver initialized successfully.")
+    print("WebDriver 初始化成功。")
     return browser
 
 if __name__ == "__main__":
     args = parse_args()
     if args.yes:  # for schedule task, use exist config file
         no_confirm = True
-        print("no confirm mode enabled, will use exist config file")
+        print("已啟用免確認模式，將直接套用現有設定檔。")
     else:
         no_confirm = False
-        print("no confirm mode disabled, will ask for config file")
+        print("未啟用免確認模式，執行時會詢問是否套用設定檔。")
 
 # cd to the directory of the script
 def get_executable_dir():
@@ -158,40 +158,42 @@ def get_executable_dir():
 # print pwd
 # print("current working directory: ", os.getcwd())
 os.chdir(get_executable_dir())
-print("current working directory: ", os.getcwd())
+print("目前工作目錄：", os.getcwd())
 
 
 # WARNING
-print("###############  Stock Vote TDCC helper tool   ############")
-print("version: 2025.7.19")
-print("author: DavidChou")
-print("repository: https://github.com/DavidChou23/TDCC_evote_helper")
-print("This script is only for assisting shareholders to complete the voting process in advance")
-print("Voting content can be modified at any time without affecting the shareholder's intention")
-print("This script is not responsible for any consequences caused by the use of this script")
+print("###############  TDCC 股東投票輔助工具  ###############")
+print("版本：2025.7.19")
+print("作者：DavidChou")
+print("中文化：LukeLai")
+print("專案網址：https://github.com/DavidChou23/TDCC_evote_helper")
+print("本程式僅用於協助股東提前完成投票流程。")
+print("投票內容可隨時修改，不影響股東實際投票意願。")
+print("使用本程式所造成的任何後果，程式作者概不負責。")
 print("##########################################################")
 
 # generate statement html
 with open('./statement.html', 'w', encoding='utf-8') as f:
     f.write('''
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-Hant">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TDCC e-vote helper tool</title>
+    <title>TDCC 股東投票輔助工具</title>
 </head>
 <body>
-    <h1>TDCC e-vote helper tool</h1>
-    <p>Version: 2025.7.19</p>
-    <p>Author: DavidChou</p>
-    <p>Repository: <a href="https://github.com/DavidChou23/TDCC_evote_helper">https://github.com/DavidChou23/TDCC_evote_helper</a> </p>
-    <p>This script is only for assisting shareholders to complete the voting process in advance</p>
-    <p>Voting content can be modified at any time without affecting the shareholder's intention</p>
-    <p>This script is not responsible for any consequences caused by the use of this script</p>
+    <h1>TDCC 股東投票輔助工具</h1>
+    <p>版本：2025.7.19</p>
+    <p>作者：DavidChou</p>
+    <p>中文化：LukeLai</p>
+    <p>專案網址：<a href="https://github.com/DavidChou23/TDCC_evote_helper">https://github.com/DavidChou23/TDCC_evote_helper</a></p>
+    <p>本程式僅用於協助股東提前完成投票流程。</p>
+    <p>投票內容可隨時修改，不會影響股東實際投票意願。</p>
+    <p>使用本程式所產生的任何結果或後果，程式作者概不負責。</p>
     <!-- <p>For more information, please visit <a href="">your website link here</a></p> -->
     <br>
-    <p><strong> please enter the command in the black control window. The voting content can be modified at any time without affecting the shareholder's intention</strong></p>
+    <p><strong>請在命令視窗中輸入指令。投票內容可隨時修改，不會影響股東實際投票意願。</strong></p>
 </body>
 </html>
     ''')
@@ -298,11 +300,11 @@ def click_element(element: webdriver.remote.webelement.WebElement) -> None:
             break
         except Exception as e:
             if(attempts>=max_attempts):
-                print("click_element error: ", e)
+                print("點擊元素時發生錯誤：", e)
                 break
             else:
-                print("click_element error: ", e)
-                print("retrying...")
+                print("點擊元素時發生錯誤：", e)
+                print("正在重試...")
                 attempts += 1
                 time.sleep(0.5)
                 continue
@@ -317,7 +319,7 @@ def logout() -> None:
 
 def autoLogin(user_ID):
     global driver
-    print("try login as ", user_ID)
+    print("正在嘗試登入：", user_ID)
     # logout to ensure clear the session
     driver.get("https://stockservices.tdcc.com.tw/evote/logout.html")
     time.sleep(2*time_speed)
@@ -331,7 +333,7 @@ def autoLogin(user_ID):
     time.sleep(1*time_speed)
     driver.find_element(By.ID,'loginBtn').click()
     # click_element(driver.find_element(By.ID,'loginBtn'))
-    print("logining please wait...(usually takes 10-60 seconds)")
+    print("正在登入，請稍候...（通常需要 10 到 60 秒）")
     
     ######################################################################
     # how long to wait for the login page to load
@@ -402,8 +404,8 @@ def autoLogin(user_ID):
         if driver.find_element(By.TAG_NAME,'body').text.find("系統維護中") != -1:
             # time between 00:00~7:00
             if datetime.datetime.now().hour < 7:
-                print("系統維護中，請於7:00~24:00進行投票！Scheduled system maintenance! Voting Hours : 7:00~24:00")
-                print("press Enter to exit")
+                print("系統維護中，請於 7:00~24:00 之間進行投票。")
+                print("按 Enter 鍵結束程式")
                 input()
                 logout()
                 driver.quit()
@@ -420,7 +422,7 @@ def autoLogin(user_ID):
                 continue
         
         if "login/shareholder" in driver.current_url:
-            print("尚未登入完成，等待5秒")
+            print("登入尚未完成，5 秒後再試一次")
             time.sleep(5)
             continue
         time.sleep(time_speed*3)
@@ -507,22 +509,22 @@ def voting():
                             #print("accept")
                             i.find_element(By.CSS_SELECTOR,'input[value="A"]').click()
                             # click_element(i.find_element(By.CSS_SELECTOR,'input[value="A"]'))
-                            print("-->accept")
+                            print("--> 贊成")
                             time.sleep(0.5*time_speed)
                         elif any(keyword in statement for keyword in opposite_list): # opposite
                             #print("opposite")
                             i.find_element(By.CSS_SELECTOR,'input[value="O"]').click()
                             # click_element(i.find_element(By.CSS_SELECTOR,'input[value="O"]'))
-                            print("-->opposite")
+                            print("--> 反對")
                             time.sleep(0.5*time_speed)
                         elif any(keyword in statement for keyword in abstain_list): # abstain
                             #print("abstain")
                             i.find_element(By.CSS_SELECTOR,'input[value="C"]').click()
                             # click_element(i.find_element(By.CSS_SELECTOR,'input[value="C"]'))
-                            print("-->abstain")
+                            print("--> 棄權")
                             time.sleep(0.5*time_speed)
                     except Exception as e:
-                        print("error: ",e)
+                        print("發生錯誤：",e)
                         continue
         except:
             pass
@@ -595,17 +597,17 @@ def voting():
                 thd=threading.Thread(target = show_msg_on_driver, args=("腳本等待中", 30, "等待結束"))
                 thd.start()
                 time.sleep(1)
-                input("請點選機器人驗證後按Enter鍵繼續")
+                input("請先完成機器人驗證，再按 Enter 鍵繼續")
             
             if "系統操作逾時" in driver.find_element(By.TAG_NAME,"form").text:
-                print("系統操作逾時，請關閉程式重新開啟")
+                print("系統操作逾時，請關閉程式後重新開啟。")
                 return
             
             if driver.find_element(By.TAG_NAME,'body').text.find("系統維護中") != -1:
                 # time between 00:00~7:00
                 if datetime.datetime.now().hour < 7:
-                    print("系統維護中，請於7:00~24:00進行投票！Scheduled system maintenance! Voting Hours : 7:00~24:00")
-                    print("press Enter to exit")
+                    print("系統維護中，請於 7:00~24:00 之間進行投票。")
+                    print("按 Enter 鍵結束程式")
                     input()
                     logout()
                     driver.quit()
@@ -638,7 +640,7 @@ def autovote(user_ID):
                 break
             except:
                 time.sleep(2*time_speed)
-        print("------開始投票------")
+        print("------ 開始投票 ------")
         while(True):
             try:
                 if "未投票" in driver.find_elements(By.TAG_NAME,'tr')[1].text:
@@ -656,13 +658,13 @@ def autovote(user_ID):
                     voting()
                     try:
                         if "系統操作逾時" in driver.find_element(By.TAG_NAME,"form").text:
-                            print("系統操作逾時，請關閉程式重新開啟")
+                            print("系統操作逾時，請關閉程式後重新開啟。")
                             time.sleep(2)
                             continue
                         if "系統維護中" in driver.find_element(By.TAG_NAME,"form").text:
-                            print("系統維護中，請等待維護結束後再重新執行程式")
+                            print("系統維護中，請待維護結束後再重新執行程式。")
                             time.sleep(2)
-                            input("press enter to exit....")
+                            input("按 Enter 鍵結束程式...")
                             logout()
                             driver.quit()
                             sys.exit()
@@ -671,14 +673,14 @@ def autovote(user_ID):
                     write_voteinfolist(voteinfolist)
                     time.sleep(2)
                 else:
-                    print("------投票完畢 共"+ str(len(voteinfolist[user_ID])) +"筆------")
+                    print("------ 投票完畢，共 " + str(len(voteinfolist[user_ID])) + " 筆 ------")
                     break
             except Exception as e:
-                print(f"autovote error: {e}")
+                print(f"自動投票時發生錯誤：{e}")
                 return 1
         return 0
     except Exception as e:
-        print(f"autovote failed: {e}")
+        print(f"自動投票失敗：{e}")
         return 1
 
 # wait for review                    
@@ -724,7 +726,7 @@ def screenshot(user_id,info):
         driver.execute_script("document.body.style.zoom = '100%'")
         return 0
     except Exception as e:
-        print(f"screenshot failed: {e}")
+        print(f"截圖失敗：{e}")
         return 1
 
 def auto_screenshot(user_id, stock_id):
@@ -781,7 +783,7 @@ def auto_screenshot(user_id, stock_id):
                 if tmp==1:
                     break
         else: 
-            print("seems like no search result for: ", stock_id)
+            print("查無此股號的搜尋結果：", stock_id)
             return 2
 
         time.sleep(0.6*time_speed)
@@ -816,7 +818,7 @@ def auto_screenshot(user_id, stock_id):
                 write_voteinfolist(voteinfolist)
                 print(f"{voteinfo[0]} {voteinfo[1]} 截圖成功")
             except Exception as e:
-                print(f"Failed to update voteinfolist: {e}")
+                print(f"更新 voteinfolist 失敗：{e}")
                 return 1
         else:
             print(f"{voteinfo[0]} {voteinfo[1]} 截圖失敗")
@@ -826,10 +828,10 @@ def auto_screenshot(user_id, stock_id):
             driver.execute_script("arguments[0].click();", driver.find_element(By.CSS_SELECTOR,'button[onclick="back(); return false;"]'))
             time.sleep(0.5*time_speed)
         except Exception as e:
-            print(f"Failed to return: {e}")
+            print(f"返回上一頁失敗：{e}")
         return 0
     except Exception as e:
-        print(f"auto_screenshot failed: {e}")
+        print(f"自動截圖失敗：{e}")
         return 1
 
 def write_voteinfolist(voteinfolist):
@@ -873,7 +875,7 @@ def read_voteinfolist(voteinfolist):
     
     # print the voteinfolist
     for id, stock_id_list in voteinfolist.items():
-        print(f"ID: {id}, Stocks: {', '.join(stock_id_list)}")
+        print(f"身分證字號：{id}，股票清單：{', '.join(stock_id_list)}")
 
 # read manual vote setting
 def read_vote_setting():
@@ -910,15 +912,15 @@ def read_vote_setting():
         hash_object = hashlib.sha256(content.encode())
         hex_dig = hash_object.hexdigest()
         if hash_value != hex_dig:
-            print("vote_setting.conf file is corrupted(hash not match), please restart the program and reconfigure")
+            print("vote_setting.conf 設定檔已損毀（雜湊值不符），請重新啟動程式後重新設定。")
             # print("hash value: ", hash_value)
             # print("calculated hash value: ", hex_dig)
             if os.path.exists('./vote_setting.conf.bak'):
                 os.remove('./vote_setting.conf.bak')
             os.rename('./vote_setting.conf', './vote_setting.conf.bak')
-            print("vote_setting.conf file is renamed to vote_setting.conf.bak")
-            print("please reconfigure the vote setting")
-            print("press Enter to exit")
+            print("vote_setting.conf 已重新命名為 vote_setting.conf.bak")
+            print("請重新設定投票內容。")
+            print("按 Enter 鍵結束程式")
             sys.exit()
 
 def write_vote_setting():
@@ -973,17 +975,17 @@ def vi_vote_setting():
     opposite_list=[]
     abstain_list=[]
     default_vote=""
-    print("----------- here's the default vote setting -----------")
-    print("default vote: abstain")
-    print("accept keyword: []")
-    print("opposite keyword: []")
-    print("abstain keyword: []")
+    print("----------- 預設投票設定如下 -----------")
+    print("預設投票：abstain")
+    print("贊成(accept)關鍵字：[]")
+    print("反對(opposite)關鍵字：[]")
+    print("棄權(abstain)關鍵字：[]")
     print("-------------------------------------------------------")
     while(True):
-        tmp=input("do you want to use the default setting?(y/n)?")
+        tmp=input("是否使用這組預設設定？(y/n)")
         if tmp.lower() in ["y","n"]:
             break
-        print("please select y or n")
+        print("請輸入 y 或 n")
     if tmp.lower() == "y":
         default_vote="abstain"
         accept_list=[]
@@ -991,55 +993,55 @@ def vi_vote_setting():
         abstain_list=[]
         manual_vote=False
         write_vote_setting()
-        print("setting saved")
+        print("設定已儲存")
         return
     elif tmp.lower() == "n":
-        print("please set the vote setting at below")
+        print("請在下方設定投票內容")
         print("-------------------------------------------------------")
     # default vote
     while(True):
-        tmp=input("please enter the default vote option (accept/opposite/abstain):")
+        tmp=input("請輸入預設投票選項（accept / opposite / abstain）：")
         if tmp.lower() in ["accept","opposite","abstain"]:
             default_vote=tmp.lower()
             break
-        print("please select accept, opposite or abstain")
+        print("請輸入 accept、opposite 或 abstain 其中之一")
     # keyword to accept
     while(True):
-        tmp=input("please enter the keyword to accept, one keyword per line, end with 'end' :")
+        tmp=input("請輸入「贊成」關鍵字，每次一個，輸入 end 結束：")
         if tmp.lower() == "end":
             break
         if tmp not in accept_list:
             accept_list.append(tmp)
     # keyword to opposite
     while(True):
-        tmp=input("please enter the keyword to opposite, one keyword per line, end with 'end' :")
+        tmp=input("請輸入「反對」關鍵字，每次一個，輸入 end 結束：")
         if tmp.lower() == "end":
             break
         if tmp not in opposite_list:
             opposite_list.append(tmp)
     # keyword to abstain
     while(True):
-        tmp=input("please enter the keyword to abstain, one keyword per line, end with 'end' :")
+        tmp=input("請輸入「棄權」關鍵字，每次一個，輸入 end 結束：")
         if tmp.lower() == "end":
             break
         if tmp not in abstain_list:
             abstain_list.append(tmp)
     # print the setting
-    print("default vote: ",default_vote)
-    print("accept keyword: ",accept_list)
-    print("opposite keyword: ",opposite_list)
-    print("abstain keyword: ",abstain_list)
+    print("預設投票：",default_vote)
+    print("贊成(accept)關鍵字：",accept_list)
+    print("反對(opposite)關鍵字：",opposite_list)
+    print("棄權(abstain)關鍵字：",abstain_list)
     print("================")
 
     # confirm
     while(True):
-        tmp=input("do you want to save the setting?(y/n)?")
+        tmp=input("是否儲存設定？(y/n)")
         if tmp.lower() in ["y","n"]:
             break
-        print("please select y or n")
+        print("請輸入 y 或 n")
     if tmp.lower() == "y":
         write_vote_setting()
-        print("setting saved")
+        print("設定已儲存")
         return
     elif tmp.lower() == "n":
         if os.path.exists('./vote_setting.conf.bak'):
@@ -1082,15 +1084,15 @@ def read_program_setting():
     hash_object = hashlib.sha256(content.encode())
     hex_dig = hash_object.hexdigest()
     if hash_value != hex_dig:
-        print("program_setting.conf file is corrupted(hash not match), please restart the program and reconfigure")
+        print("program_setting.conf 設定檔已損毀（雜湊值不符），請重新啟動程式後重新設定。")
         # print("hash value: ", hash_value)
         # print("calculated hash value: ", hex_dig)
         if os.path.exists('./program_setting.conf.bak'):
             os.remove('./program_setting.conf.bak')
         os.rename('./program_setting.conf', './program_setting.conf.bak')
-        print("program_setting.conf file is renamed to program_setting.conf.bak")
-        print("please reconfigure the program setting")
-        print("press Enter to exit")
+        print("program_setting.conf 已重新命名為 program_setting.conf.bak")
+        print("請重新設定程式參數。")
+        print("按 Enter 鍵結束程式")
         sys.exit()
 
 def vi_program_setting():
@@ -1103,12 +1105,12 @@ def vi_program_setting():
 
     # set time speed
     while(True):
-        print("run_speed should between 1~30(the smaller the faster)")
-        print("set it larger if:")
-        print("    - your computer is slow")
-        print("    - your network is slow")
-        print("    - the TDCC server thinks you are a robot")
-        tmp = input("please enter the run speed (default is 2):")
+        print("請輸入執行速度 1~30（數字越小，速度越快）")
+        print("若有以下情況，建議改用較大的數值：")
+        print("    - 電腦速度較慢")
+        print("    - 網路速度較慢")
+        print("    - TDCC 伺服器判定你像機器人")
+        tmp = input("請輸入執行速度（預設為 2）：")
         if tmp.isdigit() and int(tmp) >= 1 and int(tmp) <= 30:
             time_speed = int(tmp)/2
             break
@@ -1116,11 +1118,11 @@ def vi_program_setting():
             time_speed = 2/2
             break
         else:
-            print("please enter a number between 1~30")
+            print("請輸入 1~30 之間的數字")
 
     # set shareholder IDs
     while(True):
-        tmp = input("please enter the shareholder ID(台灣的身分證字號), one ID per line, end with 'end' :")
+        tmp = input("請輸入股東身分證字號，每次一個，輸入 end 結束：")
         if tmp.lower() == "end":
             break
         if tmp not in shareholderIDs:
@@ -1130,34 +1132,34 @@ def vi_program_setting():
                 case 0:
                     shareholderIDs.append(tmp)
                 case 1:
-                    print(tmp+" seems not a ID number in Taiwan")
+                    print(tmp+" 看起來不是有效的台灣身分證字號。")
                 case 2:
-                    print(tmp+"'s check digit is wrong, please check it")
+                    print(tmp+" 的檢查碼有誤，請重新確認。")
                 case _:
                     # should not happen
                     raise ValueError(f"Unexpected id_check_result: {id_check_result}")
     
     # print the setting
-    print("screenshot mode: ",str(screenshot_mode) + ":"+["Current structure (screenshots per user ID folder)","All screenshots in one folder, filename {stock_id}_{stock_name}_{stock_account_id}.png","All screenshots in one folder, filename {stock_id}_{stock_name}_{user_id}.png"][screenshot_mode-1])
-    print("time speed: ",time_speed*2)
-    print("shareholder number: ",len(shareholderIDs))
-    print("shareholder ID: ",shareholderIDs)
+    print("截圖模式：",str(screenshot_mode) + ":"+["依身分證字號分資料夾儲存","集中到同一資料夾，檔名為 {stock_id}_{stock_name}_{stock_account_id}.png","集中到同一資料夾，檔名為 {stock_id}_{stock_name}_{user_id}.png"][screenshot_mode-1])
+    print("執行速度：",time_speed*2)
+    print("股東數量：",len(shareholderIDs))
+    print("股東身分證字號：",shareholderIDs)
 
     # confirm
     while(True):
-        tmp = input("do you want to save the setting?(y/n)?")
+        tmp = input("是否儲存設定？(y/n)")
         if tmp.lower() in ["y","n"]:
             break
-        print("please select y or n")
+        print("請輸入 y 或 n")
     if tmp.lower() == "y":
         write_program_setting()
-        print("setting saved")
+        print("設定已儲存")
         return
     elif tmp.lower() == "n":
         if os.path.exists('./program_setting.conf.bak'):
             os.remove('./program_setting.conf.bak')
         os.rename('./program_setting.conf', './program_setting.conf.bak')
-        print("setting not saved")
+        print("設定未儲存")
         return
 
 def load_settings():
@@ -1165,14 +1167,14 @@ def load_settings():
     global manual_vote, accept_list, opposite_list, abstain_list, default_vote
     
     if not os.path.exists('./vote_setting.conf'):
-        print("current manual vote setting not found, please set it")
+        print("找不到目前的投票設定，請先完成設定。")
         vi_vote_setting()
-        input("press enter to exit then run again")
+        input("按 Enter 鍵結束程式，之後再重新執行")
         sys.exit()
     if not os.path.exists('./program_setting.conf'):
-        print("current ID list not found, please set it")
+        print("找不到目前的股東名單設定，請先完成設定。")
         vi_program_setting()
-        input("press enter to exit then run again")
+        input("按 Enter 鍵結束程式，之後再重新執行")
         sys.exit()
 
     read_program_setting()
@@ -1181,23 +1183,23 @@ def load_settings():
     while(True):
         #print("setting found, use modified setting")
         print("================")
-        print("screenshot mode: ",str(screenshot_mode) + ":"+["Current structure (screenshots per user ID folder)","All screenshots in one folder, filename {stock_id}_{stock_name}_{stock_account_id}.png","All screenshots in one folder, filename {stock_id}_{stock_name}_{user_id}.png"][screenshot_mode-1])
-        print("run speed: ",time_speed*2)
-        print("shareholder number: ",len(shareholderIDs))
-        print("shareholder ID: ",shareholderIDs)
+        print("截圖模式：",str(screenshot_mode) + ":"+["依身分證字號分資料夾儲存","集中到同一資料夾，檔名為 {stock_id}_{stock_name}_{stock_account_id}.png","集中到同一資料夾，檔名為 {stock_id}_{stock_name}_{user_id}.png"][screenshot_mode-1])
+        print("執行速度：",time_speed*2)
+        print("股東數量：",len(shareholderIDs))
+        print("股東身分證字號：",shareholderIDs)
         print("================")
         if no_confirm == True:
             tmp = "y"
             break
-        tmp=input("do you want to use the above setting?(y/n)?")
+        tmp=input("是否套用以上設定？(y/n)")
         if tmp.lower() in ["y","n"]:
             break
-        print("please select y or n")
+        print("請輸入 y 或 n")
     if tmp.lower() == "y":
         pass
     elif tmp.lower() == "n":
         vi_program_setting()
-        input("press enter to exit then run again")
+        input("按 Enter 鍵結束程式，之後再重新執行")
         sys.exit()
 
     read_vote_setting()
@@ -1206,39 +1208,39 @@ def load_settings():
     while(True):
         #print("setting found, use modified setting")
         print("================")
-        print("default vote: ",default_vote)
-        print("accept keyword: ",accept_list)
-        print("opposite keyword: ",opposite_list)
-        print("abstain keyword: ",abstain_list)
+        print("預設投票：",default_vote)
+        print("贊成關鍵字：",accept_list)
+        print("反對關鍵字：",opposite_list)
+        print("棄權關鍵字：",abstain_list)
         print("================")
         if no_confirm == True:
             tmp = "y"
             break
-        tmp=input("do you want to use the above manual vote setting?(y/n)?")
+        tmp=input("是否套用以上投票設定？(y/n)")
         if tmp.lower() in ["y","n"]:
             break
-        print("please select y or n")
+        print("請輸入 y 或 n")
     if tmp.lower() == "y":
-        print("use manual vote setting")
+        print("已套用目前投票設定")
         return
     elif tmp.lower() == "n":
         vi_vote_setting()
-        input("press enter to exit then run again")
+        input("按 Enter 鍵結束程式，之後再重新執行")
         sys.exit()
 
 def choose_screenshot_mode():
-    print("Choose screenshot file structure:")
-    print("1. Current structure (screenshots per user ID folder)")
-    print("2. All screenshots in one folder, filename {stock_id}_{stock_name}_{stock_account_id}.png")
-    print("3. All screenshots in one folder, filename {stock_id}_{stock_name}_{user_id}.png")
+    print("請選擇截圖儲存格式：")
+    print("1. 依身分證字號分資料夾儲存")
+    print("2. 集中到同一資料夾，檔名為 {stock_id}_{stock_name}_{stock_account_id}.png")
+    print("3. 集中到同一資料夾，檔名為 {stock_id}_{stock_name}_{user_id}.png")
     while True:
-        mode = input("Please select (1/2/3): ").strip()
+        mode = input("請輸入 1、2 或 3：").strip()
         if mode in ["1", "2", "3"]:
             if(mode in ["2","3"]):
                 if not os.path.exists(base_path+"/all/"):
                     os.makedirs(base_path+"/all/")
             return int(mode)
-        print("Please enter 1 or 2 or 3.")
+        print("請輸入 1、2 或 3。")
 
 ###############################################    START    ######################################################
 driver=""
@@ -1271,20 +1273,20 @@ if len(list(voteinfolist.keys()))>0:
     if(no_confirm == True):
         check = "Y"
     else:
-        check=input("Last time have unfinished screenshot, do you want to continue? (Y/N) :").upper()
+        check=input("偵測到上次有未完成的截圖，是否要繼續處理？(Y/N)：").upper()
     if check=="Y":
         load_settings() # for screenshot mode
-        print("--------- continue take screenshot---------")
+        print("--------- 繼續處理截圖 ---------")
         driver = webdriver.Chrome() # selenium auto install
         for id in voteinfolist.keys():
-            print("ID: ",id)
-            print("Stocks: ",voteinfolist[id])
+            print("身分證字號：",id)
+            print("股票清單：",voteinfolist[id])
             autoLogin(id)
             while(len(voteinfolist[id])>0):
                 result = auto_screenshot(id,voteinfolist[id][0])
                 if result != 0:
-                    print(f"auto_screenshot failed for {voteinfolist[id][0]}")
-        print("-----  finish take screenshot  -----")
+                    print(f"{voteinfolist[id][0]} 自動截圖失敗")
+        print("-----  截圖完成  -----")
         logout()
         driver.quit()
 
@@ -1293,22 +1295,22 @@ if len(list(voteinfolist.keys()))>0:
 tmp_flag =0
 while(True):
     print("-------------------------------")
-    print("(1) all accounts vote+take screenshot")
-    print("(2) take screenshot of specific stocks")
-    print("(3) exit")
+    print("(1) 所有帳號自動投票並截圖")
+    print("(2) 針對指定股票截圖")
+    print("(3) 離開")
     print("-------------------------------")
     if no_confirm == True:
         check = "1"
     else:
-        check=input("please select: ")
+        check=input("請選擇：")
     if check not in ["1","2","3"]:
-        print("please select 1, 2 or 3")
-        print("please restart the program.......")
-        input("press Enter to exit")
+        print("請輸入 1、2 或 3")
+        print("請重新啟動程式後再試一次。")
+        input("按 Enter 鍵結束程式")
         sys.exit()
     if check=="3" or (no_confirm==True and tmp_flag == 1):
-        print("exit")
-        input("press Enter to exit")
+        print("離開程式")
+        input("按 Enter 鍵結束程式")
         sys.exit()
     if check=="1":
         tmp_flag = 1
@@ -1331,13 +1333,13 @@ while(True):
             autoLogin(user_id)
             result = autovote(user_id)
             if result != 0:
-                print(f"autovote failed for {user_id}")
+                print(f"{user_id} 自動投票失敗")
             # check if the page is loaded
             while(len(voteinfolist[user_id])>0):
                 result = auto_screenshot(user_id, voteinfolist[user_id][0])
                 if result != 0:
-                    print(f"auto_screenshot failed for {voteinfolist[user_id][0]}")
-            print("------ finished ------")
+                    print(f"{voteinfolist[user_id][0]} 自動截圖失敗")
+            print("------ 已完成 ------")
             logout()
         driver.quit()
     elif check=="2":
@@ -1345,14 +1347,14 @@ while(True):
         # driver = webdriver.Chrome() # use the installed driver
         driver = open_browser()
         while(True):
-            id=input("Please enter the user ID number to take screenshots:(-1 to exit) ")
+            id=input("請輸入要截圖的股東身分證字號（輸入 -1 可離開）：")
             if id == "-1":
-                print("exit")
+                print("離開程式")
                 driver.quit()
-                input("press Enter to continue")
+                input("按 Enter 鍵結束程式")
                 sys.exit()
             if(id_check(id) != 0):
-                print("ID number is not valid")
+                print("身分證字號格式不正確。")
                 continue
                 
             while(True):
@@ -1360,7 +1362,7 @@ while(True):
                     autoLogin(id)
                     break
                 except Exception as e:
-                    print("error: ",e)
+                    print("發生錯誤：",e)
                     continue
             # check if the page is loaded
             # driver.get("https://stockservices.tdcc.com.tw/evote/shareholder/000/tc_estock_welshas.html")
@@ -1373,23 +1375,23 @@ while(True):
             while(True):
                 try:
                     #stock_list=input("請輸入要擷取的股號，多個股號請用「,」分開：").upper()
-                    stock_list=input('Please enter the stock ID to take screenshots, multiple stock IDs should be separated by ",":(-1 to exit)').upper()
+                    stock_list=input('請輸入要截圖的股號，多個股號請以「,」分隔（輸入 -1 可離開）：').upper()
                     if stock_list == "-1":
                         break
                     stock_list=stock_list.replace(" ","").split(",")
                     stock_list= [i for i in stock_list if i not in [""," ","\n"] and i.isdigit() and int(i)>0]
                     if len(stock_list) == 0:
-                        print("no stock ID found")
+                        print("沒有偵測到有效的股號。")
                         continue
-                    print("start take screenshot of: ",stock_list)
+                    print("開始截圖：",stock_list)
                     if(id not in voteinfolist.keys()):
                         voteinfolist[id]=[]
                     voteinfolist[id].extend(stock_list)
                     for stock_id in stock_list:
                         result = auto_screenshot(id, stock_id)
                         if result != 0:
-                            print(f"auto_screenshot failed for {stock_id}")
+                            print(f"{stock_id} 自動截圖失敗")
                 except Exception as e:
-                    print("error: ",e)
+                    print("發生錯誤：",e)
                     continue
             logout()

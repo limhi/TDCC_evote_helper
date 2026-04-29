@@ -32,4 +32,4 @@ for entry in os.listdir(SRC_DIR):
         dst_fname = f'{name}_{id_}{ext}'
         dst_path = os.path.join(DST_DIR, dst_fname)
         shutil.move(src_path, dst_path)
-        print(f'Moved: {src_path} -> {dst_path}')
+        print(f'已移動：{src_path} -> {dst_path}')
