@@ -192,6 +192,11 @@ pyinstaller -F ./TDCC_helper_tool.py
 pyinstaller -F ./rename_tool.py
 
 我們在 commit 0c3b30577 中引入了 GitHub 工作流程來建置工具的可執行檔，您可以直接從本專案的 "Actions" 標籤頁下載可執行檔。
+
+# 20260429 by LukeLai
+若要指定產出的資料夾，使用參數distpath
+pyinstaller -F --distpath .\release .\TDCC_helper_tool.py
+
 ```
 
 ---

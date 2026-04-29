@@ -8,3 +8,5 @@
 build/
 screenshots/
 .venv/
+__pycache__
+release
