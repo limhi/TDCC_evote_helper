@@ -12,7 +12,10 @@ from selenium import webdriver
 import subprocess
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import Select
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
+from selenium.common.exceptions import TimeoutException
 import time
 import datetime
 import os
@@ -32,6 +35,61 @@ def short_exception_message(e: Exception) -> str:
     if first_line.startswith("Message:"):
         first_line = first_line[len("Message:"):].strip()
     return first_line
+
+def weighted_delay_range(base_min_seconds=0.1, base_max_seconds=0.8):
+    weight = max(0.1, time_speed)
+    return base_min_seconds * weight, base_max_seconds * weight
+
+def random_human_delay(min_seconds=0.1, max_seconds=0.8) -> None:
+    min_seconds = max(0, min_seconds)
+    max_seconds = max(min_seconds, max_seconds)
+    time.sleep(random.uniform(min_seconds, max_seconds))
+
+def wait_for_condition(condition, timeout=10, jitter_min_seconds=0.1, jitter_max_seconds=0.8):
+    element = WebDriverWait(driver, timeout, poll_frequency=0.2).until(condition)
+    random_human_delay(jitter_min_seconds, jitter_max_seconds)
+    return element
+
+def wait_for_clickable(locator, timeout=10, jitter_min_seconds=0.1, jitter_max_seconds=0.8):
+    return wait_for_condition(EC.element_to_be_clickable(locator), timeout, jitter_min_seconds, jitter_max_seconds)
+
+def wait_for_presence(locator, timeout=10, jitter_min_seconds=0.1, jitter_max_seconds=0.8):
+    return wait_for_condition(EC.presence_of_element_located(locator), timeout, jitter_min_seconds, jitter_max_seconds)
+
+def click_if_ready(locator, timeout=1, jitter_min_seconds=0.1, jitter_max_seconds=0.8) -> bool:
+    if not driver.find_elements(*locator):
+        return False
+    try:
+        wait_for_clickable(locator, timeout=timeout, jitter_min_seconds=jitter_min_seconds, jitter_max_seconds=jitter_max_seconds).click()
+        return True
+    except TimeoutException:
+        return False
+
+def focus_then_click(
+    focus_locator,
+    click_locator,
+    timeout=5,
+    focus_jitter_min_seconds=0.2,
+    focus_jitter_max_seconds=0.8,
+    click_jitter_min_seconds=0.1,
+    click_jitter_max_seconds=0.8,
+    require_focus_element=False,
+) -> bool:
+    try:
+        click_element = WebDriverWait(driver, timeout, poll_frequency=0.2).until(
+            EC.element_to_be_clickable(click_locator)
+        )
+        focus_elements = driver.find_elements(*focus_locator)
+        if focus_elements:
+            driver.execute_script("arguments[0].focus();", focus_elements[0])
+            random_human_delay(focus_jitter_min_seconds, focus_jitter_max_seconds)
+        elif require_focus_element:
+            return False
+        random_human_delay(click_jitter_min_seconds, click_jitter_max_seconds)
+        click_element.click()
+        return True
+    except TimeoutException:
+        return False
 
 def parse_args():
     parser = argparse.ArgumentParser(description="TDCC 電子投票與截圖輔助工具")
@@ -489,13 +547,15 @@ def autoLogin(user_ID):
 # wait for review
 def voting():
     global default_vote, manual_vote, accept_list, opposite_list, abstain_list
+    loop_jitter = weighted_delay_range(0.05, 0.3)
+    click_jitter = weighted_delay_range(0.1, 0.8)
+    manual_vote_jitter = weighted_delay_range(0.05, 0.4)
     while(True):
-        time.sleep(1) # slower but reduce possibility to be detected as robot
+        random_human_delay(*loop_jitter) # slower but reduce possibility to be detected as robot
         #### 投票已完成，回清單
         if "投票已完成" in driver.find_element(By.TAG_NAME,'table').text:
             #print("投票已完成")
-            time.sleep(3*time_speed)
-            driver.find_element(By.CSS_SELECTOR,'button[onclick="doProcess();"]').click()
+            wait_for_clickable((By.CSS_SELECTOR,'button[onclick="doProcess();"]'), timeout=5, jitter_min_seconds=click_jitter[0], jitter_max_seconds=click_jitter[1]).click()
             # click_element(driver.find_element(By.CSS_SELECTOR,'button[onclick="doProcess();"]'))
             break
 
@@ -506,9 +566,8 @@ def voting():
                 #while(True):
                     try:
                         #全部贊成 #有空格
-                        driver.find_element(By.CSS_SELECTOR,'table.c-votelist_docSection tr:nth-child(2) td:nth-child(2) a:nth-child(1)').click()
+                        click_if_ready((By.CSS_SELECTOR,'table.c-votelist_docSection tr:nth-child(2) td:nth-child(2) a:nth-child(1)'), jitter_min_seconds=click_jitter[0], jitter_max_seconds=click_jitter[1])
                         # click_element(driver.find_element(By.CSS_SELECTOR,'table.c-votelist_docSection tr:nth-child(2) td:nth-child(2) a:nth-child(1)'))
-                        time.sleep(2*time_speed)
                         #break
                     except Exception as e:
                         #print("error: ",e)
@@ -518,9 +577,8 @@ def voting():
                 #while(True):
                     try:
                         #全部反對 #有空格
-                        driver.find_element(By.CSS_SELECTOR,'table.c-votelist_docSection tr:nth-child(2) td:nth-child(2) a:nth-child(2)').click()
+                        click_if_ready((By.CSS_SELECTOR,'table.c-votelist_docSection tr:nth-child(2) td:nth-child(2) a:nth-child(2)'), jitter_min_seconds=click_jitter[0], jitter_max_seconds=click_jitter[1])
                         # click_element(driver.find_element(By.CSS_SELECTOR,'table.c-votelist_docSection tr:nth-child(2) td:nth-child(2) a:nth-child(2)'))
-                        time.sleep(2*time_speed)
                         #break
                     except Exception as e:
                         #print("error: ",e)
@@ -530,9 +588,8 @@ def voting():
                 #while(True):
                     try:
                         #全部棄權 #有空格
-                        driver.find_element(By.CSS_SELECTOR,'table.c-votelist_docSection tr:nth-child(2) td:nth-child(2) a:nth-child(3)').click()
+                        click_if_ready((By.CSS_SELECTOR,'table.c-votelist_docSection tr:nth-child(2) td:nth-child(2) a:nth-child(3)'), jitter_min_seconds=click_jitter[0], jitter_max_seconds=click_jitter[1])
                         # click_element(driver.find_element(By.CSS_SELECTOR,'table.c-votelist_docSection tr:nth-child(2) td:nth-child(2) a:nth-child(3)'))
-                        time.sleep(2*time_speed)
                         #break
                     except Exception as e:
                         #print("error: ",e)
@@ -558,19 +615,19 @@ def voting():
                             i.find_element(By.CSS_SELECTOR,'input[value="A"]').click()
                             # click_element(i.find_element(By.CSS_SELECTOR,'input[value="A"]'))
                             print("--> 贊成")
-                            time.sleep(0.5*time_speed)
+                            random_human_delay(*manual_vote_jitter)
                         elif any(keyword in statement for keyword in opposite_list): # opposite
                             #print("opposite")
                             i.find_element(By.CSS_SELECTOR,'input[value="O"]').click()
                             # click_element(i.find_element(By.CSS_SELECTOR,'input[value="O"]'))
                             print("--> 反對")
-                            time.sleep(0.5*time_speed)
+                            random_human_delay(*manual_vote_jitter)
                         elif any(keyword in statement for keyword in abstain_list): # abstain
                             #print("abstain")
                             i.find_element(By.CSS_SELECTOR,'input[value="C"]').click()
                             # click_element(i.find_element(By.CSS_SELECTOR,'input[value="C"]'))
                             print("--> 棄權")
-                            time.sleep(0.5*time_speed)
+                            random_human_delay(*manual_vote_jitter)
                     except Exception as e:
                         print("發生錯誤：",e)
                         continue
@@ -580,9 +637,8 @@ def voting():
         #### 候選人投票
         try:
             #全部棄權(候選人投票)
-            driver.find_element(By.CSS_SELECTOR,'a[href="javascript:giveUp();"]').click() #全部放棄
+            click_if_ready((By.CSS_SELECTOR,'a[href="javascript:giveUp();"]'), jitter_min_seconds=click_jitter[0], jitter_max_seconds=click_jitter[1]) #全部放棄
             # click_element(driver.find_element(By.CSS_SELECTOR,'a[href="javascript:giveUp();"]'))
-            time.sleep(3*time_speed)
             #driver.find_element(By.CSS_SELECTOR,'button[onclick="voteObj.checkVote(); return false;"]').click() #下一步
             # click_element(driver.find_element(By.CSS_SELECTOR,'button[onclick="voteObj.checkVote(); return false;"]'))
             #time.sleep(3*time_speed)
@@ -595,9 +651,17 @@ def voting():
         #### 下一步
         try:
             #下一步
-            driver.find_element(By.CSS_SELECTOR,'button[onclick="voteObj.checkVote(); return false;"]').click()
+            if not focus_then_click(
+                (By.XPATH,'//*[self::button or self::a][contains(normalize-space(.), "取消投票")]'),
+                (By.CSS_SELECTOR,'button[onclick="voteObj.checkVote(); return false;"]'),
+                timeout=1,
+                focus_jitter_min_seconds=click_jitter[0],
+                focus_jitter_max_seconds=click_jitter[1],
+                click_jitter_min_seconds=click_jitter[0],
+                click_jitter_max_seconds=click_jitter[1],
+            ):
+                raise TimeoutException()
             # click_element(driver.find_element(By.CSS_SELECTOR,'button[onclick="voteObj.checkVote(); return false;"]'))
-            time.sleep(3*time_speed)
             continue
         except:
             pass
@@ -605,16 +669,14 @@ def voting():
         #### 小視窗
         try:
             #小視窗下一步(棄權警告視窗1)
-            driver.find_element(By.CSS_SELECTOR,'button[onclick="voteObj.ignoreVote();voteObj.goNext(); return false;"]').click()
+            click_if_ready((By.CSS_SELECTOR,'button[onclick="voteObj.ignoreVote();voteObj.goNext(); return false;"]'), jitter_min_seconds=click_jitter[0], jitter_max_seconds=click_jitter[1])
             # click_element(driver.find_element(By.CSS_SELECTOR,'button[onclick="voteObj.ignoreVote();voteObj.goNext(); return false;"]'))
-            time.sleep(3*time_speed)
         except:
             pass
         try:
             #小視窗下一步(棄權警告視窗2)
-            driver.find_element(By.CSS_SELECTOR,'button[onclick="voteObj.ignoreVote();voteObj.goNext();return false;"]').click()
+            click_if_ready((By.CSS_SELECTOR,'button[onclick="voteObj.ignoreVote();voteObj.goNext();return false;"]'), jitter_min_seconds=click_jitter[0], jitter_max_seconds=click_jitter[1])
             # click_element(driver.find_element(By.CSS_SELECTOR,'button[onclick="voteObj.ignoreVote();voteObj.goNext();return false;"]'))
-            time.sleep(3*time_speed)
         except:
             pass
 
@@ -625,11 +687,17 @@ def voting():
                 #thd=threading.Thread(target = show_msg_on_driver, args=("預投票結果如下，如需要修改，請回主頁點選修改", 10, "投票完成"))
                 #thd.start()
                 #time.sleep(10)
-                time.sleep(3*time_speed)
-                driver.find_element(By.CSS_SELECTOR,'button[onclick="voteObj.checkMeetingPartner(); return false;"]').click()
+                focus_then_click(
+                    (By.XPATH,'//*[self::button or self::a][contains(normalize-space(.), "修改投票結果")]'),
+                    (By.CSS_SELECTOR,'button[onclick="voteObj.checkMeetingPartner(); return false;"]'),
+                    timeout=5,
+                    focus_jitter_min_seconds=click_jitter[0],
+                    focus_jitter_max_seconds=click_jitter[1],
+                    click_jitter_min_seconds=click_jitter[0],
+                    click_jitter_max_seconds=click_jitter[1],
+                )
                 # click_element(driver.find_element(By.CSS_SELECTOR,'button[onclick="voteObj.checkMeetingPartner(); return false;"]'))
                 #time.sleep(6)
-                time.sleep(3*time_speed)
         except:
             pass
         
@@ -679,30 +747,23 @@ def autovote(user_ID):
     Returns: 0 for success, 1 for error
     """
     global driver, voteinfolist
+    page_jitter = weighted_delay_range(0.1, 0.8)
+    click_jitter = weighted_delay_range(0.1, 0.8)
     try:
         driver.get("https://stockservices.tdcc.com.tw/evote/shareholder/000/tc_estock_welshas.html")
-        time.sleep(2*time_speed)
-        while(True):
-            try:
-                driver.find_element(By.NAME,'qryStockId')
-                break
-            except:
-                time.sleep(2*time_speed)
+        wait_for_presence((By.NAME,'qryStockId'), timeout=20, jitter_min_seconds=page_jitter[0], jitter_max_seconds=page_jitter[1])
         print("------ 開始投票 ------")
         while(True):
             try:
-                if "未投票" in driver.find_elements(By.TAG_NAME,'tr')[1].text:
-                    print(driver.find_elements(By.TAG_NAME,'tr')[1].text)
-                    voteinfolist[user_ID].append(driver.find_elements(By.TAG_NAME,'tr')[1].text.split(" ")[0])
-                    driver.find_elements(By.TAG_NAME,'tr')[1].find_elements(By.TAG_NAME,'td')[3].find_elements(By.TAG_NAME,'a')[0].click()
+                rows = driver.find_elements(By.TAG_NAME,'tr')
+                if "未投票" in rows[1].text:
+                    print(rows[1].text)
+                    voteinfolist[user_ID].append(rows[1].text.split(" ")[0])
+                    rows[1].find_elements(By.TAG_NAME,'td')[3].find_elements(By.TAG_NAME,'a')[0].click()
                     # click_element(driver.find_elements(By.TAG_NAME,'tr')[1].find_elements(By.TAG_NAME,'td')[3].find_elements(By.TAG_NAME,'a')[0])
-                    time.sleep(1)
-                    try:
-                        driver.find_element(By.ID,"msgDialog_okBtn").click()
-                        # click_element(driver.find_element(By.ID,"msgDialog_okBtn"))
-                    except:
-                        pass
-                    time.sleep(2)
+                    random_human_delay(*click_jitter)
+                    click_if_ready((By.ID,"msgDialog_okBtn"), timeout=3, jitter_min_seconds=click_jitter[0], jitter_max_seconds=click_jitter[1])
+                    wait_for_presence((By.TAG_NAME,'table'), timeout=10, jitter_min_seconds=page_jitter[0], jitter_max_seconds=page_jitter[1])
                     voting()
                     try:
                         if "系統操作逾時" in driver.find_element(By.TAG_NAME,"form").text:
@@ -719,7 +780,7 @@ def autovote(user_ID):
                     except:
                         pass
                     write_voteinfolist(voteinfolist)
-                    time.sleep(2)
+                    wait_for_presence((By.NAME,'qryStockId'), timeout=10, jitter_min_seconds=page_jitter[0], jitter_max_seconds=page_jitter[1])
                 else:
                     print("------ 投票完畢，共 " + str(len(voteinfolist[user_ID])) + " 筆 ------")
                     break
