@@ -159,6 +159,7 @@ def build_chromium_options(browser_name: str):
     if not args.browser_log:
         options.add_argument("--log-level=3")
         options.add_experimental_option("excludeSwitches", ["enable-logging"])
+    options.add_argument(f"--user-data-dir={os.path.join(get_executable_dir(), 'browser_profile')}")
     if args.background:
         options.add_argument(f"--window-position={OFFSCREEN_POSITION[0]},{OFFSCREEN_POSITION[1]}")
     return options
