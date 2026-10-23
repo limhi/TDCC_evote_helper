@@ -79,8 +79,6 @@ This program assists shareholders in the TDCC voting process, including automate
 
 4. **If you select (1) all accounts vote + take screenshot**
    - The tool will check for existing settings. If not found or you choose to reconfigure, you will be prompted:
-     - `please enter the run speed (default is 2):`  
-       (Enter a number between 1~30; smaller is faster)
      - `please enter the shareholder ID(台灣的身分證字號), one ID per line, end with 'end' :`  
        (Enter each ID, then type `end` to finish)
      - `please enter the default vote option (accept/opposite/abstain):`  
@@ -92,6 +90,7 @@ This program assists shareholders in the TDCC voting process, including automate
      - After each section, you will be asked to confirm:
        - `do you want to save the setting?(y/n)?`
        - `do you want to use the above setting?(y/n)?`
+   - Each run, the tool asks which timing profile to use (fast / stable) and whether to enable auto-adjust. With auto-adjust on, when a robot check fails the tool lengthens the waits, restarts the browser and logs in again (up to 3 retries per account, then it falls back to manual handling). Wait times of every step are stored in `timing_setting.conf` and can be edited; per-step timings are appended to `timing.log`.
    - For each shareholder ID:
      - The tool will automatically log in, vote according to your settings, and take screenshots for each stock.
      - All screenshots are saved in `./screenshots/{id}/`.
@@ -239,8 +238,6 @@ pyinstaller -F --distpath .\release .\TDCC_helper_tool.py
 
 4. **選擇 (1) 所有帳號自動投票並截圖**
    - 程式會檢查設定，若無設定或選擇重新設定，會依序詢問：
-     - `please enter the run speed (default is 2):`  
-       投票速度（輸入 1~30，數字越小越快）
      - `please enter the shareholder ID(台灣的身分證字號), one ID per line, end with 'end' :`  
        股東身分證字號（每行一個，輸入 end 結束）
      - `please enter the default vote option (accept/opposite/abstain):`  
@@ -252,6 +249,7 @@ pyinstaller -F --distpath .\release .\TDCC_helper_tool.py
      - 設定完成後會請你確認：
        - `do you want to save the setting?(y/n)?`（是否儲存設定）
        - `do you want to use the above setting?(y/n)?`（是否使用上述設定）
+   - 每次執行會先詢問要使用的等待時間範本（快速 / 穩定），以及是否啟用自動調整。啟用後，若偵測到機器人驗證失敗，程式會拉長等待時間、重開瀏覽器並重新登入（每個帳號最多重試 3 次，超過則改為手動處理）。各步驟的等待時間存放在 `timing_setting.conf`，可自行修改；每個步驟的耗時會追加記錄在 `timing.log`。
    - 每個股東帳號會自動登入、依設定自動投票，並為每檔股票截圖。
    - 所有截圖會儲存於 `./screenshots/{id}/` 資料夾。
    - 全部完成後會自動登出並關閉瀏覽器。

@@ -23,6 +23,8 @@ import sys
 import argparse
 import threading
 import random
+import re
+import configparser
 no_confirm= False
 args = None
 os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--log-level=3"
@@ -36,31 +38,126 @@ def short_exception_message(e: Exception) -> str:
         first_line = first_line[len("Message:"):].strip()
     return first_line
 
-def weighted_delay_range(base_min_seconds=0.1, base_max_seconds=0.8):
-    weight = max(0.1, time_speed)
-    return base_min_seconds * weight, base_max_seconds * weight
+# 等待時間範本。單一數字為固定秒數，(min, max) 為隨機範圍（秒）。
+# 名稱結尾為 _poll、_timeout 的項目是輪詢間隔與逾時上限，不受自動調整倍率影響。
+TIMING_STEPS = [
+    # (名稱, 穩定, 快速, 說明)
+    ("login_logout_wait", (2, 2), (0, 0), "登入前，登出頁載入後的等待"),
+    ("login_pre_click", (2, 2), (0.5, 1.2), "輸入帳號與憑證後，點擊登入前的停頓"),
+    ("login_settle", (5, 5), (0, 0), "點擊登入後的固定等待"),
+    ("login_timeout", (60, 60), (60, 60), "等待登入頁面變化的上限"),
+    ("login_retry_timeout", (5, 5), (5, 5), "登入尚未完成時，每輪重新檢查的等待上限"),
+    ("login_poll", (1, 1), (0.2, 0.2), "登入流程每一輪檢查的間隔"),
+    ("login_dialog_settle", (5, 5), (0, 0), "按下確認對話框後的固定等待"),
+    ("terms_before_click", (5, 5), (1, 2), "同意條款前的停頓"),
+    ("terms_after_click", (5, 5), (0, 0), "同意條款後的固定等待"),
+    ("go_after_click", (2, 2), (0, 0), "登入流程每一輪點擊 go() 後的固定等待"),
+    ("post_login_settle", (3, 3), (0, 0), "登入完成後，進入投票清單前的等待"),
+    ("welshas_settle", (5, 5), (0, 0), "進入投票清單後的固定等待"),
+    ("welshas_poll", (1, 1), (0.3, 0.3), "等待投票清單搜尋欄出現的輪詢間隔"),
+    ("account_start_wait", (5, 5), (0, 0), "每個帳號開始前的等待"),
+    ("stale_timeout", (5, 5), (5, 5), "點擊後等待頁面元素更新的上限"),
+    ("go_stale_timeout", (3, 3), (3, 3), "點擊 go() 後等待頁面更新的上限"),
+    ("dialog_timeout", (5, 5), (5, 5), "按下確認對話框後等待其關閉的上限"),
+    ("ready_timeout", (10, 10), (10, 10), "等待頁面載入完成的上限"),
+    ("vote_loop_jitter", (0.05, 0.3), (0.05, 0.3), "投票頁每一輪檢查前的隨機延遲"),
+    ("vote_click_jitter", (0.1, 0.8), (0.1, 0.8), "投票頁每次點擊前的隨機延遲"),
+    ("vote_manual_jitter", (0.05, 0.4), (0.05, 0.4), "自訂投票每次選擇後的隨機延遲"),
+    ("vote_page_jitter", (0.1, 0.8), (0.1, 0.8), "投票清單頁就緒後的隨機延遲"),
+    ("vote_table_jitter", (0.1, 0.8), (0, 0), "進入投票頁後的隨機延遲"),
+    ("vote_next_focus", (0.1, 0.8), (0, 0), "按「下一步」前先聚焦其他按鈕的停頓，0 代表不聚焦"),
+    ("vote_confirm_focus", (0.1, 0.8), (0.1, 0.8), "確認投票前先聚焦其他按鈕的停頓"),
+    ("shot_zoom_wait", (0.3, 0.3), (0, 0), "截圖頁縮放與讀取內容之間的等待"),
+    ("shot_poll", (1, 1), (0.3, 0.3), "等待截圖頁元素出現的輪詢間隔"),
+    ("shot_settle", (0, 0), (0.3, 0.3), "調整視窗大小後，截圖前的等待"),
+    ("shot_page_wait", (2, 2), (0, 0), "截圖前開啟投票清單後的固定等待"),
+    ("shot_page_poll", (2, 2), (0.3, 0.3), "等待投票清單搜尋欄出現的輪詢間隔"),
+    ("shot_search_pre_click", (2.4, 2.4), (0.3, 0.8), "輸入股號後，點擊查詢前的停頓"),
+    ("shot_query_after_click", (0.9, 0.9), (0.9, 0.9), "點擊查詢後，等待結果更新"),
+    ("shot_result_poll", (2, 2), (0.5, 0.5), "等待查詢結果列出現的輪詢間隔"),
+    ("shot_detail_after_click", (0.6, 0.6), (0.6, 0.6), "點進詳細頁後的等待"),
+    ("shot_detail_settle", (1.9, 1.9), (0, 0), "詳細頁載入後，讀取戶號前的固定等待"),
+    ("shot_detail_timeout", (5, 5), (5, 5), "等待詳細頁出現戶號列的上限"),
+    ("shot_back_before", (0.4, 0.4), (0, 0), "返回前的等待"),
+    ("shot_back_after", (0.5, 0.5), (0, 0), "返回後的等待"),
+]
+TIMING_PROFILES = {
+    "stable": {name: stable for name, stable, fast, _ in TIMING_STEPS},
+    "fast": {name: fast for name, stable, fast, _ in TIMING_STEPS},
+}
+TIMING_DEFAULT_SETTINGS = {
+    "cooldown_seconds": 60,
+    "factor_step": 1.5,
+    "factor_max": 4,
+    "max_retries": 3,
+}
 
-def random_human_delay(min_seconds=0.1, max_seconds=0.8) -> None:
+timing = {}  # 目前使用的範本
+timing_factor = 1.0  # 自動調整的等待倍率，只在本次執行有效
+timing_auto = False  # 是否啟用自動調整
+timing_settings = dict(TIMING_DEFAULT_SETTINGS)
+
+class BotDetected(Exception):
+    pass
+
+def timing_range(name):
+    lo, hi = timing[name]
+    if name.endswith(("_poll", "_timeout")):
+        return lo, hi
+    return lo * timing_factor, hi * timing_factor
+
+def log_step(step, kind, seconds):
+    with open(os.path.join(get_executable_dir(), "timing.log"), "a", encoding="utf-8") as f:
+        f.write(f"{getdatetime()} {step} {kind} {seconds:.2f} 秒 x{timing_factor:g}\n")
+
+def random_human_delay(min_seconds=0.1, max_seconds=0.8, step=None) -> None:
     min_seconds = max(0, min_seconds)
     max_seconds = max(min_seconds, max_seconds)
-    time.sleep(random.uniform(min_seconds, max_seconds))
+    seconds = random.uniform(min_seconds, max_seconds)
+    time.sleep(seconds)
+    if step and seconds > 0:
+        log_step(step, "延遲", seconds)
 
-def wait_for_condition(condition, timeout=10, jitter_min_seconds=0.1, jitter_max_seconds=0.8):
-    element = WebDriverWait(driver, timeout, poll_frequency=0.2).until(condition)
-    random_human_delay(jitter_min_seconds, jitter_max_seconds)
+def pause(name) -> None:
+    random_human_delay(*timing_range(name), step=name)
+
+def poll(name) -> None:
+    time.sleep(timing[name][0])
+
+def wait_until(step, condition, timeout_name, poll_frequency=0.2):
+    started = time.time()
+    try:
+        result = WebDriverWait(driver, timing[timeout_name][0], poll_frequency=poll_frequency).until(condition)
+    except TimeoutException:
+        log_step(step, "逾時", time.time() - started)
+        return None
+    log_step(step, "等待元素", time.time() - started)
+    return result or True
+
+def wait_for_condition(condition, timeout=10, jitter_min_seconds=0.1, jitter_max_seconds=0.8, step=None):
+    started = time.time()
+    try:
+        element = WebDriverWait(driver, timeout, poll_frequency=0.2).until(condition)
+    except TimeoutException:
+        if step:
+            log_step(step, "逾時", time.time() - started)
+        raise
+    if step:
+        log_step(step, "等待元素", time.time() - started)
+    random_human_delay(jitter_min_seconds, jitter_max_seconds, step=step)
     return element
 
-def wait_for_clickable(locator, timeout=10, jitter_min_seconds=0.1, jitter_max_seconds=0.8):
-    return wait_for_condition(EC.element_to_be_clickable(locator), timeout, jitter_min_seconds, jitter_max_seconds)
+def wait_for_clickable(locator, timeout=10, jitter_min_seconds=0.1, jitter_max_seconds=0.8, step=None):
+    return wait_for_condition(EC.element_to_be_clickable(locator), timeout, jitter_min_seconds, jitter_max_seconds, step)
 
-def wait_for_presence(locator, timeout=10, jitter_min_seconds=0.1, jitter_max_seconds=0.8):
-    return wait_for_condition(EC.presence_of_element_located(locator), timeout, jitter_min_seconds, jitter_max_seconds)
+def wait_for_presence(locator, timeout=10, jitter_min_seconds=0.1, jitter_max_seconds=0.8, step=None):
+    return wait_for_condition(EC.presence_of_element_located(locator), timeout, jitter_min_seconds, jitter_max_seconds, step)
 
-def click_if_ready(locator, timeout=1, jitter_min_seconds=0.1, jitter_max_seconds=0.8) -> bool:
+def click_if_ready(locator, timeout=1, jitter_min_seconds=0.1, jitter_max_seconds=0.8, step=None) -> bool:
     if not driver.find_elements(*locator):
         return False
     try:
-        wait_for_clickable(locator, timeout=timeout, jitter_min_seconds=jitter_min_seconds, jitter_max_seconds=jitter_max_seconds).click()
+        wait_for_clickable(locator, timeout=timeout, jitter_min_seconds=jitter_min_seconds, jitter_max_seconds=jitter_max_seconds, step=step).click()
         return True
     except TimeoutException:
         return False
@@ -74,21 +171,27 @@ def focus_then_click(
     click_jitter_min_seconds=0.1,
     click_jitter_max_seconds=0.8,
     require_focus_element=False,
+    step=None,
 ) -> bool:
+    started = time.time()
     try:
         click_element = WebDriverWait(driver, timeout, poll_frequency=0.2).until(
             EC.element_to_be_clickable(click_locator)
         )
+        if step:
+            log_step(step, "等待元素", time.time() - started)
         focus_elements = driver.find_elements(*focus_locator)
         if focus_elements:
             driver.execute_script("arguments[0].focus();", focus_elements[0])
-            random_human_delay(focus_jitter_min_seconds, focus_jitter_max_seconds)
+            random_human_delay(focus_jitter_min_seconds, focus_jitter_max_seconds, step=step and f"{step}_focus")
         elif require_focus_element:
             return False
-        random_human_delay(click_jitter_min_seconds, click_jitter_max_seconds)
+        random_human_delay(click_jitter_min_seconds, click_jitter_max_seconds, step=step)
         click_element.click()
         return True
     except TimeoutException:
+        if step:
+            log_step(step, "逾時", time.time() - started)
         return False
 
 def parse_args():
@@ -397,6 +500,31 @@ def getdatetime()-> str:
     now_date=datetime.datetime.now().strftime("/%m/%d %H:%M:%S")
     return now_year+now_date
 
+def log_timing(label, started=None):
+    seconds = "" if started is None else f" {time.time() - started:.1f} 秒"
+    line = f"{getdatetime()} {label}{seconds}"
+    print(f"[計時] {line}")
+    with open(os.path.join(get_executable_dir(), "timing.log"), "a", encoding="utf-8") as f:
+        f.write(line + "\n")
+
+def dismiss_confirm_dialog():
+    driver.find_element(By.ID,"comfirmDialog_okBtn").click()
+    pause("login_dialog_settle")
+    wait_until("dialog_close", EC.invisibility_of_element_located((By.ID,"comfirmDialog_okBtn")), "dialog_timeout")
+
+def wait_login_page_change(step, timeout_name):
+    def displayed(d, by, value):
+        return any(e.is_displayed() for e in d.find_elements(by, value))
+    wait_until(
+        step,
+        lambda d: "login/shareholder" not in d.current_url
+        or displayed(d, By.ID, "comfirmDialog_okBtn")
+        or displayed(d, By.CSS_SELECTOR, 'a[class="btnAgree btn-style btn-b btn-lg"]')
+        or displayed(d, By.NAME, "btn1"),
+        timeout_name,
+        poll_frequency=0.5,
+    )
+
 def click_element(element: webdriver.remote.webelement.WebElement) -> None:
     """
     1. use while loop to wait for the element to be clickable
@@ -437,23 +565,22 @@ def logout() -> None:
     global driver
     # logout
     driver.get("https://stockservices.tdcc.com.tw/evote/logout.html")
-    time.sleep(2*time_speed)
     print("登出成功")
 
 def autoLogin(user_ID):
     global driver
     print("正在嘗試登入：", user_ID)
+    login_started = time.time()
     # logout to ensure clear the session
     driver.get("https://stockservices.tdcc.com.tw/evote/logout.html")
-    time.sleep(2*time_speed)
+    pause("login_logout_wait")
     place_window(visible=False)
     driver.set_window_size(1000, 1000)
     # login page
     driver.get("https://stockservices.tdcc.com.tw/evote/login/shareholder.html")
     driver.find_element(By.NAME,"pageIdNo").send_keys(user_ID)
-    time.sleep(1*time_speed)
     driver.find_element(By.NAME,"caType").send_keys("券商網路下單憑證")
-    time.sleep(1*time_speed)
+    pause("login_pre_click")
     driver.find_element(By.ID,'loginBtn').click()
     # click_element(driver.find_element(By.ID,'loginBtn'))
     print("正在登入，請稍候...（通常需要 10 到 60 秒）")
@@ -462,12 +589,12 @@ def autoLogin(user_ID):
     # how long to wait for the login page to load
     ######################################################################
     # time.sleep(3*time_speed)
-    time.sleep(5)
+    pause("login_settle")
+    wait_login_page_change("login_wait", "login_timeout")
 
     try:
-        driver.find_element(By.ID,"comfirmDialog_okBtn").click()
+        dismiss_confirm_dialog()
         # click_element(driver.find_element(By.ID,"comfirmDialog_okBtn"))
-        time.sleep(5*time_speed)
     except:
         pass
     # thd=threading.Thread(target = show_msg_on_driver, args=("登入中請稍等·····", 20, "登入中請稍等·····"))
@@ -479,17 +606,19 @@ def autoLogin(user_ID):
     ######################################################################
     ######################################################################
     while(True):
-        time.sleep(1)
+        poll("login_poll")
         try:
             #我同意上列條款
             #if driver.find_element(By.CSS_SELECTOR,'a[class="btnAgree btn-style btn-b btn-lg"]'):
             if driver.find_element(By.CSS_SELECTOR,'a[class="btnAgree btn-style btn-b btn-lg"]'):
                 thd=threading.Thread(target = show_msg_on_driver, args=("請閱讀條款·····", 0, "請閱讀條款·····"))
                 thd.start()
-                time.sleep(5)
-                driver.find_element(By.CSS_SELECTOR,'a[class="btnAgree btn-style btn-b btn-lg"]').click()
+                pause("terms_before_click")
+                agree_btn = driver.find_element(By.CSS_SELECTOR,'a[class="btnAgree btn-style btn-b btn-lg"]')
+                agree_btn.click()
                 # click_element(driver.find_element(By.CSS_SELECTOR,'a[class="btnAgree btn-style btn-b btn-lg"]'))
-                time.sleep(5*time_speed)
+                pause("terms_after_click")
+                wait_until("terms_stale", EC.staleness_of(agree_btn), "stale_timeout")
         except:
             pass
         try:
@@ -497,29 +626,34 @@ def autoLogin(user_ID):
             if driver.find_elements(By.NAME,'btn1'):
                 thd=threading.Thread(target = show_msg_on_driver, args=("請閱讀條款·····", 0, "請閱讀條款·····"))
                 thd.start()
-                time.sleep(5)
-                driver.find_element(By.NAME,'btn1').click()
+                pause("terms_before_click")
+                agree_btn = driver.find_element(By.NAME,'btn1')
+                agree_btn.click()
                 # click_element(driver.find_element(By.NAME,'btn1'))
-                time.sleep(5*time_speed)
+                pause("terms_after_click")
+                wait_until("terms_stale", EC.staleness_of(agree_btn), "stale_timeout")
         except:
             pass
         try:
             for element in driver.find_elements(By.CSS_SELECTOR,'div[id="tabs1"]'):
                 driver.execute_script("arguments[0].setAttribute('class','tabs-block block color-b shadow show active')", element)
+            clicked = None
             for g in driver.find_elements(By.CSS_SELECTOR,'a[onclick="go();"]'):
                 try:
                     g.click()
+                    clicked = g
                     # click_element(g)
                 except:
                     continue
-            time.sleep(2*time_speed)
+            pause("go_after_click")
+            if clicked is not None:
+                wait_until("go_stale", EC.staleness_of(clicked), "go_stale_timeout")
         except:
             pass
 
         try:
-            driver.find_element(By.ID,"comfirmDialog_okBtn").click()
+            dismiss_confirm_dialog()
             # click_element(driver.find_element(By.ID,"comfirmDialog_okBtn"))
-            time.sleep(5*time_speed)
         except:
             pass
         
@@ -545,18 +679,20 @@ def autoLogin(user_ID):
                 continue
         
         if "login/shareholder" in driver.current_url:
-            print("登入尚未完成，5 秒後再試一次")
-            time.sleep(5)
+            print("登入尚未完成，繼續等待...")
+            wait_login_page_change("login_retry_wait", "login_retry_timeout")
             continue
-        time.sleep(time_speed*3)
+        pause("post_login_settle")
+        wait_until("page_ready", lambda d: d.execute_script("return document.readyState") == "complete", "ready_timeout")
         driver.get("https://stockservices.tdcc.com.tw/evote/shareholder/000/tc_estock_welshas.html")
-        time.sleep(5*time_speed)
+        pause("welshas_settle")
         while(True):
             try:
                 if(driver.find_element(By.NAME,'qryStockId') != None):
+                    log_timing("登入", login_started)
                     return
             except:
-                time.sleep(1)
+                poll("welshas_poll")
                 continue
         
         
@@ -564,15 +700,15 @@ def autoLogin(user_ID):
 # wait for review
 def voting():
     global default_vote, manual_vote, accept_list, opposite_list, abstain_list
-    loop_jitter = weighted_delay_range(0.05, 0.3)
-    click_jitter = weighted_delay_range(0.1, 0.8)
-    manual_vote_jitter = weighted_delay_range(0.05, 0.4)
+    loop_jitter = timing_range("vote_loop_jitter")
+    click_jitter = timing_range("vote_click_jitter")
+    manual_vote_jitter = timing_range("vote_manual_jitter")
     while(True):
-        random_human_delay(*loop_jitter) # slower but reduce possibility to be detected as robot
+        random_human_delay(*loop_jitter, step="vote_loop_jitter") # slower but reduce possibility to be detected as robot
         #### 投票已完成，回清單
         if "投票已完成" in driver.find_element(By.TAG_NAME,'table').text:
             #print("投票已完成")
-            wait_for_clickable((By.CSS_SELECTOR,'button[onclick="doProcess();"]'), timeout=5, jitter_min_seconds=click_jitter[0], jitter_max_seconds=click_jitter[1]).click()
+            wait_for_clickable((By.CSS_SELECTOR,'button[onclick="doProcess();"]'), timeout=5, jitter_min_seconds=click_jitter[0], jitter_max_seconds=click_jitter[1], step="vote_done_return").click()
             # click_element(driver.find_element(By.CSS_SELECTOR,'button[onclick="doProcess();"]'))
             break
 
@@ -583,7 +719,7 @@ def voting():
                 #while(True):
                     try:
                         #全部贊成 #有空格
-                        click_if_ready((By.CSS_SELECTOR,'table.c-votelist_docSection tr:nth-child(2) td:nth-child(2) a:nth-child(1)'), jitter_min_seconds=click_jitter[0], jitter_max_seconds=click_jitter[1])
+                        click_if_ready((By.CSS_SELECTOR,'table.c-votelist_docSection tr:nth-child(2) td:nth-child(2) a:nth-child(1)'), jitter_min_seconds=click_jitter[0], jitter_max_seconds=click_jitter[1], step="vote_all_accept")
                         # click_element(driver.find_element(By.CSS_SELECTOR,'table.c-votelist_docSection tr:nth-child(2) td:nth-child(2) a:nth-child(1)'))
                         #break
                     except Exception as e:
@@ -594,7 +730,7 @@ def voting():
                 #while(True):
                     try:
                         #全部反對 #有空格
-                        click_if_ready((By.CSS_SELECTOR,'table.c-votelist_docSection tr:nth-child(2) td:nth-child(2) a:nth-child(2)'), jitter_min_seconds=click_jitter[0], jitter_max_seconds=click_jitter[1])
+                        click_if_ready((By.CSS_SELECTOR,'table.c-votelist_docSection tr:nth-child(2) td:nth-child(2) a:nth-child(2)'), jitter_min_seconds=click_jitter[0], jitter_max_seconds=click_jitter[1], step="vote_all_opposite")
                         # click_element(driver.find_element(By.CSS_SELECTOR,'table.c-votelist_docSection tr:nth-child(2) td:nth-child(2) a:nth-child(2)'))
                         #break
                     except Exception as e:
@@ -605,7 +741,7 @@ def voting():
                 #while(True):
                     try:
                         #全部棄權 #有空格
-                        click_if_ready((By.CSS_SELECTOR,'table.c-votelist_docSection tr:nth-child(2) td:nth-child(2) a:nth-child(3)'), jitter_min_seconds=click_jitter[0], jitter_max_seconds=click_jitter[1])
+                        click_if_ready((By.CSS_SELECTOR,'table.c-votelist_docSection tr:nth-child(2) td:nth-child(2) a:nth-child(3)'), jitter_min_seconds=click_jitter[0], jitter_max_seconds=click_jitter[1], step="vote_all_abstain")
                         # click_element(driver.find_element(By.CSS_SELECTOR,'table.c-votelist_docSection tr:nth-child(2) td:nth-child(2) a:nth-child(3)'))
                         #break
                     except Exception as e:
@@ -632,19 +768,19 @@ def voting():
                             i.find_element(By.CSS_SELECTOR,'input[value="A"]').click()
                             # click_element(i.find_element(By.CSS_SELECTOR,'input[value="A"]'))
                             print("--> 贊成")
-                            random_human_delay(*manual_vote_jitter)
+                            random_human_delay(*manual_vote_jitter, step="vote_manual")
                         elif any(keyword in statement for keyword in opposite_list): # opposite
                             #print("opposite")
                             i.find_element(By.CSS_SELECTOR,'input[value="O"]').click()
                             # click_element(i.find_element(By.CSS_SELECTOR,'input[value="O"]'))
                             print("--> 反對")
-                            random_human_delay(*manual_vote_jitter)
+                            random_human_delay(*manual_vote_jitter, step="vote_manual")
                         elif any(keyword in statement for keyword in abstain_list): # abstain
                             #print("abstain")
                             i.find_element(By.CSS_SELECTOR,'input[value="C"]').click()
                             # click_element(i.find_element(By.CSS_SELECTOR,'input[value="C"]'))
                             print("--> 棄權")
-                            random_human_delay(*manual_vote_jitter)
+                            random_human_delay(*manual_vote_jitter, step="vote_manual")
                     except Exception as e:
                         print("發生錯誤：",e)
                         continue
@@ -654,7 +790,7 @@ def voting():
         #### 候選人投票
         try:
             #全部棄權(候選人投票)
-            click_if_ready((By.CSS_SELECTOR,'a[href="javascript:giveUp();"]'), jitter_min_seconds=click_jitter[0], jitter_max_seconds=click_jitter[1]) #全部放棄
+            click_if_ready((By.CSS_SELECTOR,'a[href="javascript:giveUp();"]'), jitter_min_seconds=click_jitter[0], jitter_max_seconds=click_jitter[1], step="vote_give_up") #全部放棄
             # click_element(driver.find_element(By.CSS_SELECTOR,'a[href="javascript:giveUp();"]'))
             #driver.find_element(By.CSS_SELECTOR,'button[onclick="voteObj.checkVote(); return false;"]').click() #下一步
             # click_element(driver.find_element(By.CSS_SELECTOR,'button[onclick="voteObj.checkVote(); return false;"]'))
@@ -668,15 +804,27 @@ def voting():
         #### 下一步
         try:
             #下一步
-            if not focus_then_click(
-                (By.XPATH,'//*[self::button or self::a][contains(normalize-space(.), "取消投票")]'),
-                (By.CSS_SELECTOR,'button[onclick="voteObj.checkVote(); return false;"]'),
-                timeout=1,
-                focus_jitter_min_seconds=click_jitter[0],
-                focus_jitter_max_seconds=click_jitter[1],
-                click_jitter_min_seconds=click_jitter[0],
-                click_jitter_max_seconds=click_jitter[1],
-            ):
+            next_focus = timing_range("vote_next_focus")
+            if next_focus[1] > 0:
+                next_clicked = focus_then_click(
+                    (By.XPATH,'//*[self::button or self::a][contains(normalize-space(.), "取消投票")]'),
+                    (By.CSS_SELECTOR,'button[onclick="voteObj.checkVote(); return false;"]'),
+                    timeout=1,
+                    focus_jitter_min_seconds=next_focus[0],
+                    focus_jitter_max_seconds=next_focus[1],
+                    click_jitter_min_seconds=click_jitter[0],
+                    click_jitter_max_seconds=click_jitter[1],
+                    step="vote_next",
+                )
+            else:
+                next_clicked = click_if_ready(
+                    (By.CSS_SELECTOR,'button[onclick="voteObj.checkVote(); return false;"]'),
+                    timeout=1,
+                    jitter_min_seconds=click_jitter[0],
+                    jitter_max_seconds=click_jitter[1],
+                    step="vote_next",
+                )
+            if not next_clicked:
                 raise TimeoutException()
             # click_element(driver.find_element(By.CSS_SELECTOR,'button[onclick="voteObj.checkVote(); return false;"]'))
             continue
@@ -686,13 +834,13 @@ def voting():
         #### 小視窗
         try:
             #小視窗下一步(棄權警告視窗1)
-            click_if_ready((By.CSS_SELECTOR,'button[onclick="voteObj.ignoreVote();voteObj.goNext(); return false;"]'), jitter_min_seconds=click_jitter[0], jitter_max_seconds=click_jitter[1])
+            click_if_ready((By.CSS_SELECTOR,'button[onclick="voteObj.ignoreVote();voteObj.goNext(); return false;"]'), jitter_min_seconds=click_jitter[0], jitter_max_seconds=click_jitter[1], step="vote_dialog1")
             # click_element(driver.find_element(By.CSS_SELECTOR,'button[onclick="voteObj.ignoreVote();voteObj.goNext(); return false;"]'))
         except:
             pass
         try:
             #小視窗下一步(棄權警告視窗2)
-            click_if_ready((By.CSS_SELECTOR,'button[onclick="voteObj.ignoreVote();voteObj.goNext();return false;"]'), jitter_min_seconds=click_jitter[0], jitter_max_seconds=click_jitter[1])
+            click_if_ready((By.CSS_SELECTOR,'button[onclick="voteObj.ignoreVote();voteObj.goNext();return false;"]'), jitter_min_seconds=click_jitter[0], jitter_max_seconds=click_jitter[1], step="vote_dialog2")
             # click_element(driver.find_element(By.CSS_SELECTOR,'button[onclick="voteObj.ignoreVote();voteObj.goNext();return false;"]'))
         except:
             pass
@@ -708,10 +856,11 @@ def voting():
                     (By.XPATH,'//*[self::button or self::a][contains(normalize-space(.), "修改投票結果")]'),
                     (By.CSS_SELECTOR,'button[onclick="voteObj.checkMeetingPartner(); return false;"]'),
                     timeout=5,
-                    focus_jitter_min_seconds=click_jitter[0],
-                    focus_jitter_max_seconds=click_jitter[1],
+                    focus_jitter_min_seconds=timing_range("vote_confirm_focus")[0],
+                    focus_jitter_max_seconds=timing_range("vote_confirm_focus")[1],
                     click_jitter_min_seconds=click_jitter[0],
                     click_jitter_max_seconds=click_jitter[1],
+                    step="vote_confirm",
                 )
                 # click_element(driver.find_element(By.CSS_SELECTOR,'button[onclick="voteObj.checkMeetingPartner(); return false;"]'))
                 #time.sleep(6)
@@ -722,6 +871,9 @@ def voting():
         try:
             #if "我不是機器人驗證失敗！" in driver.find_element(By.TAG_NAME,"form").text:
             if "我不是機器人驗證失敗！" in driver.find_element(By.TAG_NAME,"body").text:
+                log_timing("機器人驗證失敗")
+                if timing_auto:
+                    raise BotDetected()
                 place_window(visible=True)
                 thd=threading.Thread(target = show_msg_on_driver, args=("請點選機器人驗證", 0, "請點選機器人驗證"))
                 thd.start()
@@ -757,6 +909,8 @@ def voting():
                     time.sleep(300)
                     # wait for 5 minutes
                     continue
+        except BotDetected:
+            raise
         except:
             pass
     return
@@ -766,23 +920,26 @@ def autovote(user_ID):
     Returns: 0 for success, 1 for error
     """
     global driver, voteinfolist
-    page_jitter = weighted_delay_range(0.1, 0.8)
-    click_jitter = weighted_delay_range(0.1, 0.8)
+    page_jitter = timing_range("vote_page_jitter")
+    click_jitter = timing_range("vote_click_jitter")
+    table_jitter = timing_range("vote_table_jitter")
     try:
         driver.get("https://stockservices.tdcc.com.tw/evote/shareholder/000/tc_estock_welshas.html")
-        wait_for_presence((By.NAME,'qryStockId'), timeout=20, jitter_min_seconds=page_jitter[0], jitter_max_seconds=page_jitter[1])
+        wait_for_presence((By.NAME,'qryStockId'), timeout=20, jitter_min_seconds=page_jitter[0], jitter_max_seconds=page_jitter[1], step="vote_list_open")
         print("------ 開始投票 ------")
         while(True):
             try:
                 rows = driver.find_elements(By.TAG_NAME,'tr')
                 if "未投票" in rows[1].text:
+                    stock_started = time.time()
                     print(rows[1].text)
-                    voteinfolist[user_ID].append(rows[1].text.split(" ")[0])
+                    if rows[1].text.split(" ")[0] not in voteinfolist[user_ID]:
+                        voteinfolist[user_ID].append(rows[1].text.split(" ")[0])
                     rows[1].find_elements(By.TAG_NAME,'td')[3].find_elements(By.TAG_NAME,'a')[0].click()
                     # click_element(driver.find_elements(By.TAG_NAME,'tr')[1].find_elements(By.TAG_NAME,'td')[3].find_elements(By.TAG_NAME,'a')[0])
-                    random_human_delay(*click_jitter)
-                    click_if_ready((By.ID,"msgDialog_okBtn"), timeout=3, jitter_min_seconds=click_jitter[0], jitter_max_seconds=click_jitter[1])
-                    wait_for_presence((By.TAG_NAME,'table'), timeout=10, jitter_min_seconds=page_jitter[0], jitter_max_seconds=page_jitter[1])
+                    random_human_delay(*click_jitter, step="vote_row_click")
+                    click_if_ready((By.ID,"msgDialog_okBtn"), timeout=3, jitter_min_seconds=click_jitter[0], jitter_max_seconds=click_jitter[1], step="vote_msg_dialog")
+                    wait_for_presence((By.TAG_NAME,'table'), timeout=10, jitter_min_seconds=table_jitter[0], jitter_max_seconds=table_jitter[1], step="vote_page_open")
                     voting()
                     try:
                         if "系統操作逾時" in driver.find_element(By.TAG_NAME,"form").text:
@@ -799,14 +956,19 @@ def autovote(user_ID):
                     except:
                         pass
                     write_voteinfolist(voteinfolist)
-                    wait_for_presence((By.NAME,'qryStockId'), timeout=10, jitter_min_seconds=page_jitter[0], jitter_max_seconds=page_jitter[1])
+                    log_timing("投票單檔", stock_started)
+                    wait_for_presence((By.NAME,'qryStockId'), timeout=10, jitter_min_seconds=page_jitter[0], jitter_max_seconds=page_jitter[1], step="vote_list_return")
                 else:
                     print("------ 投票完畢，共 " + str(len(voteinfolist[user_ID])) + " 筆 ------")
                     break
+            except BotDetected:
+                raise
             except Exception as e:
                 print(f"自動投票時發生錯誤：{e}")
                 return 1
         return 0
+    except BotDetected:
+        raise
     except Exception as e:
         print(f"自動投票失敗：{e}")
         return 1
@@ -821,30 +983,31 @@ def screenshot(user_id,info):
     global base_path, screenshot_mode
     try:
         driver.execute_script("document.body.style.zoom = '120%'")
-        time.sleep(0.3*time_speed)
+        pause("shot_zoom_wait")
         body_text = driver.find_element(By.TAG_NAME, 'body').text
-        time.sleep(0.3*time_speed)
+        pause("shot_zoom_wait")
         has_egift_text = ("符合本次股東會 eGift電子紀念品 領取資格" in body_text)
         if has_egift_text:
-            time.sleep(0.3*time_speed)
+            pause("shot_zoom_wait")
             driver.execute_script("document.body.style.zoom = '100%'")
             return 2
         # adjust the window size
         while(True):
             try:
-                time.sleep(0.3*time_speed)
+                pause("shot_zoom_wait")
                 driver.find_element(By.CSS_SELECTOR,'div[class="u-width--100 u-t_align--right"]')
                 break
             except:
-                time.sleep(1)
+                poll("shot_poll")
                 continue
-        time.sleep(0.3*time_speed)
+        pause("shot_zoom_wait")
         votedate_pic = driver.find_element(By.CSS_SELECTOR,'div[class="u-width--100 u-t_align--right"]')
         driver.set_window_size(516, votedate_pic.location['y']+votedate_pic.size['height']+370)
         # scroll to the top of the page
         for _ in range(5):
             js="var q=document.documentElement.scrollTop=0"
             driver.execute_script(js) 
+        pause("shot_settle")
 
         if screenshot_mode == 1:
             if not os.path.exists(base_path+str(user_id)):
@@ -867,6 +1030,14 @@ def screenshot(user_id,info):
         print(f"截圖失敗：{short_exception_message(e)}")
         return 1
 
+def account_row_ready(d) -> bool:
+    for tr in d.find_element(By.TAG_NAME,'tbody').find_elements(By.TAG_NAME,'tr'):
+        ths = tr.find_elements(By.TAG_NAME,'th')
+        tds = tr.find_elements(By.TAG_NAME,'td')
+        if ths and tds and "戶號" in ths[0].text and tds[0].text.strip():
+            return True
+    return False
+
 def auto_screenshot(user_id, stock_id):
     """
     take screenshot of the stock_id
@@ -875,23 +1046,22 @@ def auto_screenshot(user_id, stock_id):
     """
     global driver, voteinfolist, screenshot_mode
     try:
+        stock_started = time.time()
         driver.get("https://stockservices.tdcc.com.tw/evote/shareholder/000/tc_estock_welshas.html")
-        time.sleep(2*time_speed)
+        pause("shot_page_wait")
         while(True):
             try:
                 driver.find_element(By.NAME,'qryStockId')
                 break
             except:
-                time.sleep(2*time_speed)
+                poll("shot_page_poll")
         # search stock_id
-        time.sleep(1*time_speed)
         driver.find_element(By.NAME,'qryStockId').clear()
-        time.sleep(0.5*time_speed)
         driver.find_element(By.NAME,'qryStockId').send_keys(stock_id)
-        time.sleep(0.9*time_speed)
+        pause("shot_search_pre_click")
         driver.find_element(By.CSS_SELECTOR,'a[onclick="qryByStockId();"]').click()
         # click_element(driver.find_element(By.CSS_SELECTOR,'a[onclick="qryByStockId();"]'))
-        time.sleep(0.9*time_speed)
+        pause("shot_query_after_click")
 
         # stock_id, stock_name
         voteinfo = []
@@ -900,7 +1070,7 @@ def auto_screenshot(user_id, stock_id):
                 voteinfo.extend(driver.find_elements(By.TAG_NAME,'tr')[1].text.split(" ")[0:2])
                 break   
             except IndexError:
-                time.sleep(2)
+                poll("shot_result_poll")
                 
         # click search button(should be only one after search)
         for i in driver.find_elements(By.TAG_NAME,'tr'):
@@ -924,17 +1094,17 @@ def auto_screenshot(user_id, stock_id):
             print("查無此股號的搜尋結果：", stock_id)
             return 2
 
-        time.sleep(0.6*time_speed)
+        pause("shot_detail_after_click")
         try:
             driver.find_element(By.ID,"msgDialog_okBtn").click()
             # click_element(driver.find_element(By.ID,"msgDialog_okBtn"))
-            time.sleep(0.6*time_speed)
         except Exception as e:
             pass
-        time.sleep(1*time_speed)
+        pause("shot_detail_settle")
         # 附加上 股東戶號
         try:
-            time.sleep(0.3*time_speed)
+            # 等詳細頁載入出現「戶號」列
+            wait_until("shot_detail_ready", account_row_ready, "shot_detail_timeout")
             # Try to get 戶號 from the table
             trs = driver.find_element(By.TAG_NAME,'tbody').find_elements(By.TAG_NAME,'tr')
             found = False
@@ -956,6 +1126,7 @@ def auto_screenshot(user_id, stock_id):
                 voteinfolist[user_id].remove(stock_id)
                 write_voteinfolist(voteinfolist)
                 print(f"{voteinfo[0]} {voteinfo[1]} 截圖成功")
+                log_timing("截圖單檔", stock_started)
             except Exception as e:
                 print(f"更新 voteinfolist 失敗：{e}")
                 return 1
@@ -973,9 +1144,9 @@ def auto_screenshot(user_id, stock_id):
             return 1
         #返回
         try:
-            time.sleep(0.4*time_speed)
+            pause("shot_back_before")
             driver.execute_script("arguments[0].click();", driver.find_element(By.CSS_SELECTOR,'button[onclick="back(); return false;"]'))
-            time.sleep(0.5*time_speed)
+            pause("shot_back_after")
         except Exception as e:
             print(f"返回上一頁失敗：{short_exception_message(e)}")
         return 0
@@ -1246,28 +1417,11 @@ def read_program_setting():
 
 def vi_program_setting():
     global time_speed, shareholderIDs, screenshot_mode
-    time_speed=2
+    time_speed=1  # 已由等待時間範本取代，保留欄位只為相容既有設定檔
     shareholderIDs=[]
 
     # set screenshot mode
     screenshot_mode = choose_screenshot_mode()
-
-    # set time speed
-    while(True):
-        print("請輸入執行速度 1~30（數字越小，速度越快）")
-        print("若有以下情況，建議改用較大的數值：")
-        print("    - 電腦速度較慢")
-        print("    - 網路速度較慢")
-        print("    - TDCC 伺服器判定你像機器人")
-        tmp = input("請輸入執行速度（預設為 2）：")
-        if tmp.isdigit() and int(tmp) >= 1 and int(tmp) <= 30:
-            time_speed = int(tmp)/2
-            break
-        elif tmp == "":
-            time_speed = 2/2
-            break
-        else:
-            print("請輸入 1~30 之間的數字")
 
     # set shareholder IDs
     while(True):
@@ -1290,7 +1444,6 @@ def vi_program_setting():
     
     # print the setting
     print("截圖模式：",str(screenshot_mode) + ":"+["依身分證字號分資料夾儲存","集中到同一資料夾，檔名為 {stock_id}_{stock_name}_{stock_account_id}.png","集中到同一資料夾，檔名為 {stock_id}_{stock_name}_{user_id}.png"][screenshot_mode-1])
-    print("執行速度：",time_speed*2)
     print("股東數量：",len(shareholderIDs))
     print("股東身分證字號：",shareholderIDs)
 
@@ -1333,7 +1486,6 @@ def load_settings():
         #print("setting found, use modified setting")
         print("================")
         print("截圖模式：",str(screenshot_mode) + ":"+["依身分證字號分資料夾儲存","集中到同一資料夾，檔名為 {stock_id}_{stock_name}_{stock_account_id}.png","集中到同一資料夾，檔名為 {stock_id}_{stock_name}_{user_id}.png"][screenshot_mode-1])
-        print("執行速度：",time_speed*2)
         print("股東數量：",len(shareholderIDs))
         print("股東身分證字號：",shareholderIDs)
         print("================")
@@ -1391,6 +1543,144 @@ def choose_screenshot_mode():
             return int(mode)
         print("請輸入 1、2 或 3。")
 
+TIMING_FILE = './timing_setting.conf'
+TIMING_PROFILE_NAMES = {"fast": "快速", "stable": "穩定"}
+
+def format_timing_range(r):
+    return f"{r[0]:g}" if r[0] == r[1] else f"{r[0]:g}, {r[1]:g}"
+
+def parse_timing_range(text):
+    parts = [float(x) for x in text.split(",")]
+    if len(parts) == 1:
+        parts = parts * 2
+    if len(parts) != 2 or parts[0] < 0 or parts[0] > parts[1]:
+        raise ValueError(f"無效的秒數「{text}」（請填單一數字，或「最小, 最大」且最小不可大於最大）")
+    return (parts[0], parts[1])
+
+def write_timing_file():
+    lines = [
+        "# TDCC 等待時間設定。數值單位為秒；單一數字為固定秒數，「最小, 最大」為隨機範圍。",
+        "# 名稱結尾為 _poll、_timeout 的項目是輪詢間隔與逾時上限，不受自動調整倍率影響。",
+        "# 程式啟動時選擇的範本與是否自動調整，會寫回 [general] 的 profile 與 auto_adjust。",
+        "",
+        "[general]",
+        "# 使用的範本：fast（快速）或 stable（穩定）",
+        "profile = stable",
+        "# 偵測到機器人驗證時，是否自動拉長等待時間並重新登入：yes 或 no",
+        "auto_adjust = no",
+        "# 重新登入前的冷卻時間（秒）",
+        f"cooldown_seconds = {TIMING_DEFAULT_SETTINGS['cooldown_seconds']:g}",
+        "# 每次偵測到機器人驗證，等待時間乘上的倍數，以及倍率上限",
+        f"factor_step = {TIMING_DEFAULT_SETTINGS['factor_step']:g}",
+        f"factor_max = {TIMING_DEFAULT_SETTINGS['factor_max']:g}",
+        "# 每個帳號最多自動重試幾次，超過就改回手動處理驗證",
+        f"max_retries = {TIMING_DEFAULT_SETTINGS['max_retries']:g}",
+    ]
+    for profile in ("fast", "stable"):
+        lines += ["", f"[{profile}]"]
+        for name, stable, fast, description in TIMING_STEPS:
+            lines.append(f"# {description}")
+            lines.append(f"{name} = {format_timing_range(TIMING_PROFILES[profile][name])}")
+    with open(TIMING_FILE, 'w', encoding='utf8') as f:
+        f.write("\n".join(lines) + "\n")
+
+def save_timing_choice(profile, auto_adjust):
+    with open(TIMING_FILE, 'r', encoding='utf8') as f:
+        text = f.read()
+    text = re.sub(r"(?m)^profile\s*=.*$", f"profile = {profile}", text, count=1)
+    text = re.sub(r"(?m)^auto_adjust\s*=.*$", f"auto_adjust = {'yes' if auto_adjust else 'no'}", text, count=1)
+    with open(TIMING_FILE, 'w', encoding='utf8') as f:
+        f.write(text)
+
+def load_timing_setting():
+    global timing, timing_auto, timing_settings
+    if not os.path.exists(TIMING_FILE):
+        write_timing_file()
+    parser = configparser.ConfigParser(inline_comment_prefixes=("#",))
+    try:
+        parser.read(TIMING_FILE, encoding='utf8')
+        general = parser["general"]
+        profile = general.get("profile", "stable")
+        if profile not in TIMING_PROFILES:
+            raise ValueError(f"profile 只能是 fast 或 stable，目前是「{profile}」")
+        auto_adjust = general.getboolean("auto_adjust", False)
+        settings = {key: float(general.get(key, default)) for key, default in TIMING_DEFAULT_SETTINGS.items()}
+        profiles = {}
+        for name in TIMING_PROFILES:
+            merged = dict(TIMING_PROFILES[name])
+            if parser.has_section(name):
+                for key, value in parser[name].items():
+                    if key not in merged:
+                        print(f"{TIMING_FILE} 的 [{name}] 有不認得的項目：{key}，已忽略")
+                        continue
+                    merged[key] = parse_timing_range(value)
+            profiles[name] = merged
+    except (KeyError, ValueError, configparser.Error) as e:
+        print(f"{TIMING_FILE} 格式有誤：{e}")
+        print("請修正後重新啟動，或刪除該檔案讓程式重新產生。")
+        input("按 Enter 鍵結束程式")
+        sys.exit()
+
+    if not no_confirm:
+        while(True):
+            print("================")
+            print("請選擇等待時間範本：")
+            print("(1) 快速：等待時間較短，速度較快，較容易被判定為機器人")
+            print("(2) 穩定：等待時間較長，速度較慢，較不容易被判定為機器人")
+            tmp = input(f"請選擇（直接按 Enter 沿用上次的選擇：{TIMING_PROFILE_NAMES[profile]}）：").strip()
+            if tmp == "":
+                break
+            if tmp in ["1","2"]:
+                profile = "fast" if tmp == "1" else "stable"
+                break
+            print("請輸入 1 或 2")
+        while(True):
+            tmp = input(f"是否啟用自動調整？偵測到機器人驗證時，會自動拉長等待時間並重新登入（y/n，直接按 Enter 沿用上次的選擇：{'y' if auto_adjust else 'n'}）：").strip().lower()
+            if tmp == "":
+                break
+            if tmp in ["y","n"]:
+                auto_adjust = (tmp == "y")
+                break
+            print("請輸入 y 或 n")
+        save_timing_choice(profile, auto_adjust)
+
+    timing = profiles[profile]
+    timing_auto = auto_adjust
+    timing_settings = settings
+    print(f"等待時間範本：{TIMING_PROFILE_NAMES[profile]}　自動調整：{'啟用' if auto_adjust else '停用'}")
+
+def restart_with_longer_waits():
+    global driver, timing_factor
+    timing_factor = min(timing_factor * timing_settings["factor_step"], timing_settings["factor_max"])
+    cooldown = timing_settings["cooldown_seconds"]
+    log_timing(f"偵測到機器人驗證，等待倍率調為 x{timing_factor:g}，冷卻 {cooldown:g} 秒後重新登入")
+    try:
+        driver.quit()
+    except Exception:
+        pass
+    time.sleep(cooldown)
+    driver = open_browser()
+
+def login_and_vote(user_id):
+    global timing_auto
+    auto_adjust = timing_auto
+    retries = 0
+    try:
+        while(True):
+            try:
+                autoLogin(user_id)
+                return autovote(user_id)
+            except BotDetected:
+                retries += 1
+                if retries > timing_settings["max_retries"]:
+                    print(f"已重試 {timing_settings['max_retries']:g} 次仍被偵測為機器人，改為手動處理驗證。")
+                    timing_auto = False
+                else:
+                    print(f"偵測到機器人驗證，第 {retries} 次自動調整並重新登入。")
+                    restart_with_longer_waits()
+    finally:
+        timing_auto = auto_adjust
+
 ###############################################    START    ######################################################
 driver=""
 shareholderIDs=[]
@@ -1409,6 +1699,8 @@ base_path="./screenshots/"
 if not os.path.exists(base_path):
     # if the directory does not exist, create it
     os.makedirs(base_path)
+
+load_timing_setting()
 
 #does last time have unfinished screenshot
 voteinfolist={}
@@ -1478,9 +1770,8 @@ while(True):
         for user_id in shareholderIDs:
             # open a test page (can be local or online HTML)
             driver.get("file:///" + os.path.abspath("./statement.html"))
-            time.sleep(5)
-            autoLogin(user_id)
-            result = autovote(user_id)
+            pause("account_start_wait")
+            result = login_and_vote(user_id)
             if result != 0:
                 print(f"{user_id} 自動投票失敗")
             # check if the page is loaded
