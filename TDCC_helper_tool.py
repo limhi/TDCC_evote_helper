@@ -126,10 +126,24 @@ def parse_args():
         action="store_true",
         help="顯示瀏覽器與 WebDriver 的背景日誌"
     )
+
+    parser.add_argument(
+        "--background",
+        action="store_true",
+        help="將瀏覽器視窗移到螢幕外執行，不干擾其他操作（遇到機器人驗證時會暫時移回）"
+    )
     args = parser.parse_args()
     # args.yes = True
     # args.browser = "Firefox"  # default browser
     return args
+
+OFFSCREEN_POSITION = (-32000, -32000)
+
+def place_window(visible: bool) -> None:
+    if args.background and not visible:
+        driver.set_window_position(*OFFSCREEN_POSITION)
+    else:
+        driver.set_window_position(20, 20)
 
 def build_chromium_options(browser_name: str):
     if browser_name == "Chrome":
@@ -145,6 +159,9 @@ def build_chromium_options(browser_name: str):
     if not args.browser_log:
         options.add_argument("--log-level=3")
         options.add_experimental_option("excludeSwitches", ["enable-logging"])
+    options.add_argument(f"--user-data-dir={os.path.join(get_executable_dir(), 'browser_profile')}")
+    if args.background:
+        options.add_argument(f"--window-position={OFFSCREEN_POSITION[0]},{OFFSCREEN_POSITION[1]}")
     return options
 
 def build_service_kwargs():
@@ -429,7 +446,7 @@ def autoLogin(user_ID):
     # logout to ensure clear the session
     driver.get("https://stockservices.tdcc.com.tw/evote/logout.html")
     time.sleep(2*time_speed)
-    driver.set_window_position(20, 20)
+    place_window(visible=False)
     driver.set_window_size(1000, 1000)
     # login page
     driver.get("https://stockservices.tdcc.com.tw/evote/login/shareholder.html")
@@ -705,6 +722,7 @@ def voting():
         try:
             #if "我不是機器人驗證失敗！" in driver.find_element(By.TAG_NAME,"form").text:
             if "我不是機器人驗證失敗！" in driver.find_element(By.TAG_NAME,"body").text:
+                place_window(visible=True)
                 thd=threading.Thread(target = show_msg_on_driver, args=("請點選機器人驗證", 0, "請點選機器人驗證"))
                 thd.start()
                 time.sleep(5)
@@ -714,6 +732,7 @@ def voting():
                 thd.start()
                 time.sleep(1)
                 input("請先完成機器人驗證，再按 Enter 鍵繼續")
+                place_window(visible=False)
             
             if "系統操作逾時" in driver.find_element(By.TAG_NAME,"form").text:
                 print("系統操作逾時，請關閉程式後重新開啟。")

@@ -10,3 +10,4 @@ screenshots/
 .venv/
 __pycache__
 release
+browser_profile/
