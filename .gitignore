@@ -11,3 +11,4 @@ screenshots/
 __pycache__
 release
 browser_profile/
+timing.log
