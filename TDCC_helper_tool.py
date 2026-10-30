@@ -67,6 +67,7 @@ TIMING_STEPS = [
     ("vote_table_jitter", (0.1, 0.8), (0, 0), "進入投票頁後的隨機延遲"),
     ("vote_next_focus", (0.1, 0.8), (0, 0), "按「下一步」前先聚焦其他按鈕的停頓，0 代表不聚焦"),
     ("vote_confirm_focus", (0.1, 0.8), (0.1, 0.8), "確認投票前先聚焦其他按鈕的停頓"),
+    ("vote_msg_dialog_timeout", (3, 3), (1, 1), "進入投票頁後，等待小視窗確定鈕可點擊的上限"),
     ("shot_zoom_wait", (0.3, 0.3), (0, 0), "截圖頁縮放與讀取內容之間的等待"),
     ("shot_poll", (1, 1), (0.3, 0.3), "等待截圖頁元素出現的輪詢間隔"),
     ("shot_settle", (0, 0), (0.3, 0.3), "調整視窗大小後，截圖前的等待"),
@@ -938,7 +939,7 @@ def autovote(user_ID):
                     rows[1].find_elements(By.TAG_NAME,'td')[3].find_elements(By.TAG_NAME,'a')[0].click()
                     # click_element(driver.find_elements(By.TAG_NAME,'tr')[1].find_elements(By.TAG_NAME,'td')[3].find_elements(By.TAG_NAME,'a')[0])
                     random_human_delay(*click_jitter, step="vote_row_click")
-                    click_if_ready((By.ID,"msgDialog_okBtn"), timeout=3, jitter_min_seconds=click_jitter[0], jitter_max_seconds=click_jitter[1], step="vote_msg_dialog")
+                    click_if_ready((By.ID,"msgDialog_okBtn"), timeout=timing["vote_msg_dialog_timeout"][0], jitter_min_seconds=click_jitter[0], jitter_max_seconds=click_jitter[1], step="vote_msg_dialog")
                     wait_for_presence((By.TAG_NAME,'table'), timeout=10, jitter_min_seconds=table_jitter[0], jitter_max_seconds=table_jitter[1], step="vote_page_open")
                     voting()
                     try:
