@@ -1417,7 +1417,7 @@ def read_program_setting():
 
 def vi_program_setting():
     global time_speed, shareholderIDs, screenshot_mode
-    time_speed=1  # 已由等待時間範本取代，保留欄位只為相容既有設定檔
+    time_speed=1.0  # 已由等待時間範本取代，保留欄位只為相容既有設定檔（需為浮點數，雜湊才會與讀取時一致）
     shareholderIDs=[]
 
     # set screenshot mode
