@@ -93,10 +93,22 @@ TIMING_DEFAULT_SETTINGS = {
     "max_retries": 3,
 }
 
+# 選擇題記住上次選擇用的預設值（第一次執行、尚未選過時使用）
+UI_CHOICE_DEFAULTS = {
+    "last_menu_choice": "1",
+    "last_continue_screenshot": "y",
+    "last_use_default_vote_template": "n",
+    "last_save_program_setting": "y",
+    "last_apply_program_setting": "y",
+    "last_save_vote_setting": "y",
+    "last_apply_vote_setting": "y",
+}
+
 timing = {}  # 目前使用的範本
 timing_factor = 1.0  # 自動調整的等待倍率，只在本次執行有效
 timing_auto = False  # 是否啟用自動調整
 timing_settings = dict(TIMING_DEFAULT_SETTINGS)
+ui_choices = dict(UI_CHOICE_DEFAULTS)  # 各選擇題上次的選擇
 
 class BotDetected(Exception):
     pass
@@ -1291,6 +1303,7 @@ def write_vote_setting():
 
 def vi_vote_setting():
     global manual_vote, accept_list, opposite_list, abstain_list, default_vote
+    prev_default_vote = default_vote if default_vote in ("accept", "opposite", "abstain") else None
     tmp=""
     accept_list=[]
     opposite_list=[]
@@ -1303,10 +1316,13 @@ def vi_vote_setting():
     print("棄權(abstain)關鍵字：[]")
     print("-------------------------------------------------------")
     while(True):
-        tmp=input("是否使用這組預設設定？(y/n)")
+        tmp=input(f"是否使用這組預設設定？(y/n，直接按 Enter 沿用上次的選擇：{ui_choices['last_use_default_vote_template']})").strip()
+        if tmp == "":
+            tmp = ui_choices['last_use_default_vote_template']
         if tmp.lower() in ["y","n"]:
             break
         print("請輸入 y 或 n")
+    save_ui_choice('last_use_default_vote_template', tmp.lower())
     if tmp.lower() == "y":
         default_vote="abstain"
         accept_list=[]
@@ -1321,7 +1337,12 @@ def vi_vote_setting():
         print("-------------------------------------------------------")
     # default vote
     while(True):
-        tmp=input("請輸入預設投票選項（accept / opposite / abstain）：")
+        prompt = "請輸入預設投票選項（accept / opposite / abstain）："
+        if prev_default_vote:
+            prompt = f"請輸入預設投票選項（accept / opposite / abstain，直接按 Enter 沿用上次的選擇：{prev_default_vote}）："
+        tmp=input(prompt).strip()
+        if tmp == "" and prev_default_vote:
+            tmp = prev_default_vote
         if tmp.lower() in ["accept","opposite","abstain"]:
             default_vote=tmp.lower()
             break
@@ -1356,10 +1377,13 @@ def vi_vote_setting():
 
     # confirm
     while(True):
-        tmp=input("是否儲存設定？(y/n)")
+        tmp=input(f"是否儲存設定？(y/n，直接按 Enter 沿用上次的選擇：{ui_choices['last_save_vote_setting']})").strip()
+        if tmp == "":
+            tmp = ui_choices['last_save_vote_setting']
         if tmp.lower() in ["y","n"]:
             break
         print("請輸入 y 或 n")
+    save_ui_choice('last_save_vote_setting', tmp.lower())
     if tmp.lower() == "y":
         write_vote_setting()
         print("設定已儲存")
@@ -1422,7 +1446,7 @@ def vi_program_setting():
     shareholderIDs=[]
 
     # set screenshot mode
-    screenshot_mode = choose_screenshot_mode()
+    screenshot_mode = choose_screenshot_mode(default=screenshot_mode)
 
     # set shareholder IDs
     while(True):
@@ -1450,10 +1474,13 @@ def vi_program_setting():
 
     # confirm
     while(True):
-        tmp = input("是否儲存設定？(y/n)")
+        tmp = input(f"是否儲存設定？(y/n，直接按 Enter 沿用上次的選擇：{ui_choices['last_save_program_setting']})").strip()
+        if tmp == "":
+            tmp = ui_choices['last_save_program_setting']
         if tmp.lower() in ["y","n"]:
             break
         print("請輸入 y 或 n")
+    save_ui_choice('last_save_program_setting', tmp.lower())
     if tmp.lower() == "y":
         write_program_setting()
         print("設定已儲存")
@@ -1493,10 +1520,14 @@ def load_settings():
         if no_confirm == True:
             tmp = "y"
             break
-        tmp=input("是否套用以上設定？(y/n)")
+        tmp=input(f"是否套用以上設定？(y/n，直接按 Enter 沿用上次的選擇：{ui_choices['last_apply_program_setting']})").strip()
+        if tmp == "":
+            tmp = ui_choices['last_apply_program_setting']
         if tmp.lower() in ["y","n"]:
             break
         print("請輸入 y 或 n")
+    if not no_confirm:
+        save_ui_choice('last_apply_program_setting', tmp.lower())
     if tmp.lower() == "y":
         pass
     elif tmp.lower() == "n":
@@ -1518,10 +1549,14 @@ def load_settings():
         if no_confirm == True:
             tmp = "y"
             break
-        tmp=input("是否套用以上投票設定？(y/n)")
+        tmp=input(f"是否套用以上投票設定？(y/n，直接按 Enter 沿用上次的選擇：{ui_choices['last_apply_vote_setting']})").strip()
+        if tmp == "":
+            tmp = ui_choices['last_apply_vote_setting']
         if tmp.lower() in ["y","n"]:
             break
         print("請輸入 y 或 n")
+    if not no_confirm:
+        save_ui_choice('last_apply_vote_setting', tmp.lower())
     if tmp.lower() == "y":
         print("已套用目前投票設定")
         return
@@ -1530,13 +1565,18 @@ def load_settings():
         input("按 Enter 鍵結束程式，之後再重新執行")
         sys.exit()
 
-def choose_screenshot_mode():
+def choose_screenshot_mode(default=None):
     print("請選擇截圖儲存格式：")
     print("1. 依身分證字號分資料夾儲存")
     print("2. 集中到同一資料夾，檔名為 {stock_id}_{stock_name}_{stock_account_id}.png")
     print("3. 集中到同一資料夾，檔名為 {stock_id}_{stock_name}_{user_id}.png")
+    prompt = "請輸入 1、2 或 3："
+    if default is not None:
+        prompt = f"請輸入 1、2 或 3（直接按 Enter 沿用上次的選擇：{default}）："
     while True:
-        mode = input("請輸入 1、2 或 3：").strip()
+        mode = input(prompt).strip()
+        if mode == "" and default is not None:
+            mode = str(default)
         if mode in ["1", "2", "3"]:
             if(mode in ["2","3"]):
                 if not os.path.exists(base_path+"/all/"):
@@ -1576,6 +1616,14 @@ def write_timing_file():
         f"factor_max = {TIMING_DEFAULT_SETTINGS['factor_max']:g}",
         "# 每個帳號最多自動重試幾次，超過就改回手動處理驗證",
         f"max_retries = {TIMING_DEFAULT_SETTINGS['max_retries']:g}",
+        "# 以下為各選擇題記住的上次選擇，程式會自動寫回，可不理會",
+        f"last_menu_choice = {UI_CHOICE_DEFAULTS['last_menu_choice']}",
+        f"last_continue_screenshot = {UI_CHOICE_DEFAULTS['last_continue_screenshot']}",
+        f"last_use_default_vote_template = {UI_CHOICE_DEFAULTS['last_use_default_vote_template']}",
+        f"last_save_program_setting = {UI_CHOICE_DEFAULTS['last_save_program_setting']}",
+        f"last_apply_program_setting = {UI_CHOICE_DEFAULTS['last_apply_program_setting']}",
+        f"last_save_vote_setting = {UI_CHOICE_DEFAULTS['last_save_vote_setting']}",
+        f"last_apply_vote_setting = {UI_CHOICE_DEFAULTS['last_apply_vote_setting']}",
     ]
     for profile in ("fast", "stable"):
         lines += ["", f"[{profile}]"]
@@ -1585,16 +1633,29 @@ def write_timing_file():
     with open(TIMING_FILE, 'w', encoding='utf8') as f:
         f.write("\n".join(lines) + "\n")
 
-def save_timing_choice(profile, auto_adjust):
+def save_general_setting(key, value):
     with open(TIMING_FILE, 'r', encoding='utf8') as f:
         text = f.read()
-    text = re.sub(r"(?m)^profile\s*=.*$", f"profile = {profile}", text, count=1)
-    text = re.sub(r"(?m)^auto_adjust\s*=.*$", f"auto_adjust = {'yes' if auto_adjust else 'no'}", text, count=1)
+    line = f"{key} = {value}"
+    pattern = rf"(?m)^{re.escape(key)}\s*=.*$"
+    if re.search(pattern, text):
+        text = re.sub(pattern, line, text, count=1)
+    else:
+        text = re.sub(r"(?m)^\[general\]\s*$", f"[general]\n{line}", text, count=1)
     with open(TIMING_FILE, 'w', encoding='utf8') as f:
         f.write(text)
 
+def save_timing_choice(profile, auto_adjust):
+    save_general_setting("profile", profile)
+    save_general_setting("auto_adjust", "yes" if auto_adjust else "no")
+
+def save_ui_choice(key, value):
+    global ui_choices
+    ui_choices[key] = value
+    save_general_setting(key, value)
+
 def load_timing_setting():
-    global timing, timing_auto, timing_settings
+    global timing, timing_auto, timing_settings, ui_choices
     if not os.path.exists(TIMING_FILE):
         write_timing_file()
     parser = configparser.ConfigParser(inline_comment_prefixes=("#",))
@@ -1606,6 +1667,7 @@ def load_timing_setting():
             raise ValueError(f"profile 只能是 fast 或 stable，目前是「{profile}」")
         auto_adjust = general.getboolean("auto_adjust", False)
         settings = {key: float(general.get(key, default)) for key, default in TIMING_DEFAULT_SETTINGS.items()}
+        ui_choices = {key: general.get(key, default) for key, default in UI_CHOICE_DEFAULTS.items()}
         profiles = {}
         for name in TIMING_PROFILES:
             merged = dict(TIMING_PROFILES[name])
@@ -1715,7 +1777,10 @@ if len(list(voteinfolist.keys()))>0:
     if(no_confirm == True):
         check = "Y"
     else:
-        check=input("偵測到上次有未完成的截圖，是否要繼續處理？(Y/N)：").upper()
+        check=input(f"偵測到上次有未完成的截圖，是否要繼續處理？(Y/N，直接按 Enter 沿用上次的選擇：{ui_choices['last_continue_screenshot'].upper()})：").strip().upper()
+        if check == "":
+            check = ui_choices['last_continue_screenshot'].upper()
+        save_ui_choice('last_continue_screenshot', check.lower())
     if check=="Y":
         load_settings() # for screenshot mode
         print("--------- 繼續處理截圖 ---------")
@@ -1744,12 +1809,16 @@ while(True):
     if no_confirm == True:
         check = "1"
     else:
-        check=input("請選擇：")
+        check=input(f"請選擇（直接按 Enter 沿用上次的選擇：{ui_choices['last_menu_choice']}）：").strip()
+        if check == "":
+            check = ui_choices['last_menu_choice']
     if check not in ["1","2","3"]:
         print("請輸入 1、2 或 3")
         print("請重新啟動程式後再試一次。")
         input("按 Enter 鍵結束程式")
         sys.exit()
+    if no_confirm == False:
+        save_ui_choice('last_menu_choice', check)
     if check=="3" or (no_confirm==True and tmp_flag == 1):
         print("離開程式")
         input("按 Enter 鍵結束程式")
@@ -1784,7 +1853,7 @@ while(True):
             logout()
         driver.quit()
     elif check=="2":
-        screenshot_mode = choose_screenshot_mode()
+        screenshot_mode = choose_screenshot_mode(default=screenshot_mode)
         # driver = webdriver.Chrome() # use the installed driver
         driver = open_browser()
         while(True):
