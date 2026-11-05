@@ -20,6 +20,7 @@ import time
 import datetime
 import os
 import sys
+import shutil
 import argparse
 import threading
 import random
@@ -248,6 +249,12 @@ def parse_args():
         action="store_true",
         help="將瀏覽器視窗移到螢幕外執行，不干擾其他操作（遇到機器人驗證時會暫時移回）"
     )
+
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="清空所有設定檔、browser_profile 權限資料夾與未完成截圖的進度紀錄後結束程式（不會刪除已截圖的圖片）"
+    )
     args = parser.parse_args()
     # args.yes = True
     # args.browser = "Firefox"  # default browser
@@ -398,6 +405,39 @@ def get_executable_dir():
 # print("current working directory: ", os.getcwd())
 os.chdir(get_executable_dir())
 print("目前工作目錄：", os.getcwd())
+
+def reset_all_settings():
+    removed = []
+    for path in [
+        "./program_setting.conf", "./program_setting.conf.bak",
+        "./vote_setting.conf", "./vote_setting.conf.bak",
+        "./timing_setting.conf",
+        "./timing.log",
+    ]:
+        if os.path.exists(path):
+            os.remove(path)
+            removed.append(path)
+    if os.path.exists("./browser_profile"):
+        shutil.rmtree("./browser_profile", ignore_errors=True)
+        removed.append("./browser_profile/")
+    base_path = "./screenshots/"
+    if os.path.exists(base_path):
+        for folder in os.listdir(base_path):
+            progress_file = os.path.join(base_path, folder, "imcomplele_screenshot_list.txt")
+            if os.path.exists(progress_file):
+                os.remove(progress_file)
+                removed.append(progress_file)
+    if removed:
+        print("已清除以下設定與進度紀錄：")
+        for path in removed:
+            print(" -", path)
+    else:
+        print("沒有找到任何設定檔或進度紀錄，無需清除。")
+    print("已截圖的圖片檔案不受影響。下次執行程式時會重新引導完成設定。")
+
+if args.reset:
+    reset_all_settings()
+    sys.exit()
 
 
 # WARNING

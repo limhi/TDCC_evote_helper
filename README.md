@@ -149,6 +149,7 @@ During the initial setup or when reconfiguring, you will be prompted to select a
 | `-d`, `--driver_path PATH` | Use a specific WebDriver executable instead of the automatically managed one. |
 | `--browser-log` | Show the browser and WebDriver background logs (hidden by default). |
 | `--background` | Run the browser window off-screen so it does not interfere with your mouse, keyboard and other work. See [Background Mode](#background-mode). |
+| `--reset` | Delete all setting files (`program_setting.conf`, `vote_setting.conf`, `timing_setting.conf`), the `browser_profile/` folder, `timing.log`, and the unfinished-screenshot progress records, then exit. Screenshot images already taken are not affected. |
 
 Example:
 ```
@@ -432,6 +433,7 @@ pyinstaller -F --distpath .\release .\TDCC_helper_tool.py
 | `-d`, `--driver_path PATH` | 指定自訂的 WebDriver 執行檔，不使用自動管理的版本。 |
 | `--browser-log` | 顯示瀏覽器與 WebDriver 的背景日誌（預設隱藏）。 |
 | `--background` | 將瀏覽器視窗移到螢幕外執行，不干擾你的滑鼠、鍵盤與其他工作。詳見[背景模式](#背景模式)。 |
+| `--reset` | 清空所有設定檔（`program_setting.conf`、`vote_setting.conf`、`timing_setting.conf`）、`browser_profile/` 資料夾、`timing.log`，以及未完成截圖的進度紀錄後結束程式。已截圖的圖片檔案不受影響。 |
 
 範例：
 ```
@@ -588,4 +590,17 @@ TDCC_helper_tool.exe --background -b Chrome
 你可以使用`pip`安裝這些依賴項：
 ```shell
 python3 -m pip install -r requirements.txt
+```
+
+
+```shell
+# 20260429 by LukeLai
+若要指定產出的資料夾，使用參數distpath
+pyinstaller -F --distpath .\release .\TDCC_helper_tool.py
+
+TDCC_helper_tool.exe -b Chrome
+
+TDCC_helper_tool.exe --background -b Chrome
+
+
 ```
