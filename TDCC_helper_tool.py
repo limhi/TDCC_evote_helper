@@ -56,6 +56,7 @@ TIMING_STEPS = [
     ("post_login_settle", (3, 3), (0, 0), "登入完成後，進入投票清單前的等待"),
     ("welshas_settle", (5, 5), (0, 0), "進入投票清單後的固定等待"),
     ("welshas_poll", (1, 1), (0.3, 0.3), "等待投票清單搜尋欄出現的輪詢間隔"),
+    ("welshas_timeout", (60, 60), (60, 60), "等待投票清單搜尋欄出現的上限，超過視為系統操作逾時"),
     ("account_start_wait", (5, 5), (0, 0), "每個帳號開始前的等待"),
     ("stale_timeout", (5, 5), (5, 5), "點擊後等待頁面元素更新的上限"),
     ("go_stale_timeout", (3, 3), (3, 3), "點擊 go() 後等待頁面更新的上限"),
@@ -112,6 +113,9 @@ timing_settings = dict(TIMING_DEFAULT_SETTINGS)
 ui_choices = dict(UI_CHOICE_DEFAULTS)  # 各選擇題上次的選擇
 
 class BotDetected(Exception):
+    pass
+
+class SessionTimeout(Exception):
     pass
 
 def timing_range(name):
@@ -739,15 +743,24 @@ def autoLogin(user_ID):
         wait_until("page_ready", lambda d: d.execute_script("return document.readyState") == "complete", "ready_timeout")
         driver.get("https://stockservices.tdcc.com.tw/evote/shareholder/000/tc_estock_welshas.html")
         pause("welshas_settle")
+        welshas_started = time.time()
         while(True):
             try:
                 if(driver.find_element(By.NAME,'qryStockId') != None):
                     log_timing("登入", login_started)
                     return
             except:
-                poll("welshas_poll")
-                continue
-        
+                pass
+            timeout_page = False
+            try:
+                timeout_page = "系統操作逾時" in driver.find_element(By.TAG_NAME,"body").text
+            except:
+                pass
+            if timeout_page or time.time() - welshas_started > timing["welshas_timeout"][0]:
+                log_timing("系統操作逾時")
+                raise SessionTimeout()
+            poll("welshas_poll")
+
         
 
 # wait for review
@@ -1764,6 +1777,21 @@ def restart_with_longer_waits():
     time.sleep(cooldown)
     driver = open_browser()
 
+def login_with_retry(user_id):
+    """登入並自動重試系統操作逾時；回傳 True 代表登入成功，False 代表已放棄此帳號。"""
+    retries = 0
+    while True:
+        try:
+            autoLogin(user_id)
+            return True
+        except SessionTimeout:
+            retries += 1
+            if retries > timing_settings["max_retries"]:
+                print(f"已重試 {timing_settings['max_retries']:g} 次仍遇到系統操作逾時，跳過此帳號。")
+                return False
+            print(f"偵測到系統操作逾時，第 {retries} 次重新登入。")
+            restart_with_longer_waits()
+
 def login_and_vote(user_id):
     global timing_auto
     auto_adjust = timing_auto
@@ -1781,6 +1809,13 @@ def login_and_vote(user_id):
                 else:
                     print(f"偵測到機器人驗證，第 {retries} 次自動調整並重新登入。")
                     restart_with_longer_waits()
+            except SessionTimeout:
+                retries += 1
+                if retries > timing_settings["max_retries"]:
+                    print(f"已重試 {timing_settings['max_retries']:g} 次仍遇到系統操作逾時，放棄此帳號。")
+                    return 1
+                print(f"偵測到系統操作逾時，第 {retries} 次重新登入。")
+                restart_with_longer_waits()
     finally:
         timing_auto = auto_adjust
 
@@ -1828,7 +1863,8 @@ if len(list(voteinfolist.keys()))>0:
         for id in voteinfolist.keys():
             print("身分證字號：",id)
             print("股票清單：",voteinfolist[id])
-            autoLogin(id)
+            if not login_with_retry(id):
+                continue
             while(len(voteinfolist[id])>0):
                 result = auto_screenshot(id,voteinfolist[id][0])
                 if result != 0:
